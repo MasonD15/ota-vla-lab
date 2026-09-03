@@ -502,6 +502,23 @@ function occScan(){                  // called ~5Hz: convert sonar returns to ma
     }
   }
 }
+const seenCells = new Set(), SEEN_CELL = 120;
+function seenScan(){
+  for(let k=-3; k<=3; k++){                       // 7 rays across the ~70° camera cone
+    const off = k*(Math.PI/18);                   // 10° apart
+    const d = Math.min(3000, ultrasonic(off));
+    const a = state.th + off, dx = Math.cos(a), dy = Math.sin(a);
+    for(let t=100; t<d; t+=100){
+      const gx = Math.round((state.x+dx*t)/SEEN_CELL), gy = Math.round((state.y+dy*t)/SEEN_CELL);
+      seenCells.add(gx+","+gy);
+    }
+  }
+}
+setInterval(seenScan, 250);
+function mapSeenPct(){
+  const interior = Math.pow(Math.floor(ARENA/SEEN_CELL), 2);
+  return Math.min(100, Math.round(100*seenCells.size/interior));
+}
 setInterval(occScan, 200);
 // landmark refinement: every 2s, pull each label 30% toward the nearest scanned
 // cluster within 450mm — placement error self-corrects as the map densifies
@@ -570,7 +587,9 @@ function readSensors(){
     collisions_this_session: collisionCount,
     speed_governor_active: speedCapActive,
     pose_mm: {x: Math.round(state.x), y: Math.round(state.y)},  // dead-reckoned map position
-    visual_coverage: coverageInfo(),   // which world headings you have looked at from here
+    visual_coverage: (()=>{ const c = coverageInfo();
+      return {angular_pct_from_here: c.pct, unseen_arcs_here: c.unseen,
+              map_seen_pct: mapSeenPct()}; })(),
     points_of_interest: poiMap.map(k => {
       const dx=k.x-state.x, dy=k.y-state.y;
       let b=(Math.atan2(dy,dx)-state.th)*180/Math.PI; b=((b+540)%360)-180;
@@ -1540,7 +1559,7 @@ document.getElementById('reset').onclick = ()=>{
   wpActive=false; wpList=[]; wpIdx=0; activeAction=null; poiMap.length=0;
   collisionCount=0; collisionEvents.length=0; stuckTime=0;
   landmarkMap.length=0; trail.length=0;
-  occupancy.clear(); collisionMarks.length=0;
+  occupancy.clear(); collisionMarks.length=0; seenCells.clear();
   assignSecret();   // new random block + number every reset
   if(isHuntGoal(document.getElementById('goal').value))
     document.getElementById('goal').value = huntGoal(secretTruth.color);  // re-aim at new target
@@ -1578,7 +1597,12 @@ const mapShotCanvas = document.createElement('canvas');
 mapShotCanvas.width = mapShotCanvas.height = 512;
 function buildMapGrid(){
   const N = 24, CELL = 200;
-  const rows = Array.from({length:N}, () => Array(N).fill('.'));
+  const rows = Array.from({length:N}, () => Array(N).fill('?'));
+  for(const key of seenCells){
+    const [gx,gy] = key.split(',').map(Number);
+    const c = Math.floor((gx*SEEN_CELL+ARENA/2)/CELL), r = Math.floor((ARENA/2-gy*SEEN_CELL)/CELL);
+    if(c>=0 && c<N && r>=0 && r<N) rows[r][c] = '.';
+  }
   const put = (x, y, ch) => {
     const c = Math.floor((x+ARENA/2)/CELL), r = Math.floor((ARENA/2-y)/CELL);
     if(c>=0 && c<N && r>=0 && r<N) rows[r][c] = ch;
@@ -1602,7 +1626,13 @@ function buildMapGrid(){
 function mapShot(){
   const g = mapShotCanvas.getContext('2d'), S = 512, sc = S*0.82/ARENA, cx = S/2, cy = S/2;
   const X = x => cx + x*sc, Y = y => cy - y*sc;
-  g.fillStyle = '#ffffff'; g.fillRect(0,0,S,S);
+  g.fillStyle = '#d7d7d7'; g.fillRect(0,0,S,S);      // grey = never observed
+  g.fillStyle = '#ffffff';
+  for(const key of seenCells){
+    const [gx,gy] = key.split(',').map(Number);
+    g.fillRect(X(gx*SEEN_CELL)-SEEN_CELL*sc/2, Y(gy*SEEN_CELL)-SEEN_CELL*sc/2,
+               SEEN_CELL*sc+1, SEEN_CELL*sc+1);
+  }
   g.strokeStyle = '#cccccc'; g.fillStyle = '#888'; g.font = '9px monospace'; g.lineWidth = 1;
   for(let v = -ARENA/2; v <= ARENA/2; v += ARENA/4){
     g.beginPath(); g.moveTo(X(v), Y(-ARENA/2)); g.lineTo(X(v), Y(ARENA/2)); g.stroke();
@@ -1665,6 +1695,11 @@ function drawMind(){
     mmc.moveTo(X(p[0])-3,Y(p[1])-3); mmc.lineTo(X(p[0])+3,Y(p[1])+3);
     mmc.moveTo(X(p[0])-3,Y(p[1])+3); mmc.lineTo(X(p[0])+3,Y(p[1])-3);
     mmc.stroke();
+  }
+  mmc.fillStyle='rgba(120,160,220,.07)';
+  for(const key of seenCells){
+    const [gx,gy] = key.split(',').map(Number);
+    mmc.fillRect(X(gx*SEEN_CELL)-1.5, Y(gy*SEEN_CELL)-1.5, 3, 3);
   }
   // searched-direction fan (what the camera has covered from the current spot)
   mmc.fillStyle='rgba(74,222,128,.10)';
