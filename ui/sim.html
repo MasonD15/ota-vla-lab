@@ -175,7 +175,7 @@
     <div id="logtot">session: 0 in / 0 out · $0.000000</div>
     <div id="logrows"></div></div>
 
-  <div id="hint">WASD / arrows · drive manually<br>autopilot: camera frame → LLM → motor vectors</div>
+  <div id="hint">WASD/arrows · fly the sky cam (Q/E height, Shift = fast, drag = orbit)<br>the rover drives itself — autopilot: frame → LLM → actions</div>
 
   <div id="mind" class="panel" style="position:absolute; bottom:14px; right:14px; padding:10px; z-index:11">
     <h2>mind map · trail · looked-at fan · labels</h2>
@@ -871,13 +871,23 @@ function step(){
 const keys = {};
 addEventListener('keydown', e=>{ keys[e.key.toLowerCase()]=true; });
 addEventListener('keyup',   e=>{ keys[e.key.toLowerCase()]=false; });
-function manualDrive(){
-  if(autopilot) return;
+// WASD flies the SKY CAM (not the rover) — look around freely while the bot acts
+let flyLast = performance.now();
+function flyCam(){
+  const now = performance.now(), dt = Math.min((now-flyLast)/1000, .05); flyLast = now;
+  if(document.getElementById('followcam').checked) return;   // follow mode owns the target
   const f=(keys['w']||keys['arrowup'])?1:0, b=(keys['s']||keys['arrowdown'])?1:0;
   const lft=(keys['a']||keys['arrowleft'])?1:0, rgt=(keys['d']||keys['arrowright'])?1:0;
-  let l=(f-b)*.7, r=(f-b)*.7;
-  l += (rgt-lft)*.4; r += (lft-rgt)*.4;
-  targetL = Math.max(-1,Math.min(1,l)); targetR = Math.max(-1,Math.min(1,r));
+  const up=(keys['e'])?1:0, dn=(keys['q'])?1:0;
+  if(!(f||b||lft||rgt||up||dn)) return;
+  const sp = (keys['shift'] ? 3600 : 1400) * dt;
+  const dir = new THREE.Vector3(); chase.getWorldDirection(dir); dir.z = 0; dir.normalize();
+  const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0,0,1)).negate();
+  const mv = new THREE.Vector3()
+    .addScaledVector(dir, (f-b)*sp)
+    .addScaledVector(right, (lft-rgt)*sp);
+  mv.z = (up-dn)*sp;
+  chase.position.add(mv); controls.target.add(mv);
 }
 
 // ================= split-brain autopilot =================
@@ -1753,7 +1763,7 @@ window.addEventListener('error', e => reportJsError('window', e.error || e.messa
 (function animate(){
   requestAnimationFrame(animate);        // reschedule FIRST — a throw can never kill the loop
   try{
-    manualDrive();
+    flyCam();
     step();
   // chase camera follows only if locked to rover
   if(document.getElementById('followcam').checked)
