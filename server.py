@@ -247,7 +247,7 @@ ACTION LIBRARY — reply with "action": {{"name": "<fn>", "args": {{...}}}}:
 - scan {{"direction": "left"|"right"}} — slow visual-search rotation at auto-computed speed; keeps rotating until you command otherwise. Use while hunting; LABEL the target the moment it appears. SCAN DISCIPLINE: telemetry visual_coverage shows which world headings you have ALREADY looked at from this spot ("unseen" arcs are what remains) — pick ONE direction and HOLD IT until unseen is empty or the target is found. NEVER flip scan direction mid-search; flipping re-covers the same arc forever.
 - rotate_until_clear {{"direction": "left"|"right", "clearance_mm": 600..2000}} — turn until the forward cone shows at least that much room.
 - goto {{"label": "<landmark>", "standoff_mm": 350..800}} — auto-steer to a labeled landmark and stop at standoff. ONLY for entries in known_landmarks (label it first).
-- follow_waypoints {{"points": [{{"x":<mm>, "y":<mm>, "face"?: "<landmark to aim at on arrival>", "face_deg"?: <0-359 heading to aim>, "look_s"?: <0-6 seconds to STOP AND OBSERVE>}}, ...]}} — drive a plotted trajectory. A trajectory is not just locomotion: add LOOK-POINTS (face + look_s) where observing matters — a dwell gives you fresh, stationary camera frames at that spot (e.g. orbit arcs: face the target at each arc point with look_s 2). 4-6 points for complex routes, ≥450mm from block centers. Paths are PRE-FLIGHT CHECKED against your own map: if a segment crosses mapped geometry you get "path_rejected" naming the segment and location — replot around it. Unscanned space cannot be pre-checked.
+- follow_waypoints {{"points": [{{"x":<mm>, "y":<mm>, "face"?: "<landmark to aim at on arrival>", "face_deg"?: <0-359 heading to aim>, "look_s"?: <0-6 seconds to STOP AND OBSERVE>}}, ...]}} — drive a plotted trajectory. A trajectory is not just locomotion: add LOOK-POINTS (face + look_s) where observing matters — a dwell gives you fresh, stationary camera frames at that spot (e.g. orbit arcs: face the target at each arc point with look_s 2). 4-6 points for complex routes. The ONLY clearance rule: no segment within 170mm of mapped geometry — corridors wider than ~400mm are passable through their CENTER. Paths are PRE-FLIGHT CHECKED against your own map: if a segment crosses mapped geometry you get "path_rejected" naming the segment and location — replot around it. Unscanned space cannot be pre-checked.
 - turn_to {{"heading_deg": 0..359}} — rotate to an ABSOLUTE compass heading by the shortest way (precision ~0.5°).
 - face {{"label": "<landmark>"}} — rotate until a labeled landmark is dead ahead (live-tracking; precision ~0.5°).
 - mark {{"label": "<short name>", "x": <mm>, "y": <mm>}} — annotate your mind map with a point of interest. Instant; POIs appear on your map/grid and in telemetry with live distance/bearing. BEST USE — SEARCH BOOKKEEPING: after inspecting a face or viewpoint, mark it crossed-off (e.g. "purpleW-seen" at your viewing spot, "nothing-here"). Before searching anywhere, check your POIs: never re-inspect a marked face. This is YOUR ledger — invent whatever naming convention helps you.
@@ -262,7 +262,7 @@ There is DELIBERATELY no orbit primitive — going around something is a THINKIN
 ORBIT RECIPE: read the target's map coordinates (grid + map_x/map_y), then plot an arc with follow_waypoints — 4-6 points spaced ~45-60° apart on a circle of radius 450-550mm around the target, starting from your side and sweeping to the far side. Check each point against the grid: never place one on or beside '#' cells or other letters; route the arc AWAY from walls and neighbors even if it means a wider detour. If the path stops early you will get a signal with WHERE it stopped and WHY — re-plot the remaining arc from that position, wider.
 Typical patterns: hunting → scan until seen+labeled, then goto; hidden far face → goto, then plot an arc (ORBIT RECIPE); tight spot → rotate_until_clear then move; long route → follow_waypoints.
 
-Reply ONLY JSON: {{"scene": "<exhaustive frame inventory, 40-80 words>", "observe": "<headline of what you see, <=15 words>", "assess": "<what it means for the current step, <=15 words>", "action": {{"name": "<fn from the library>", "args": {{...}}}}, "memory": "<working memory: current intent + key context, <=100 words — OMIT this field entirely to keep your previous memory unchanged (free); rewrite only when it should change>", "say": "<the decision, brief>", "landmarks": [{{"label":"..","bearing_deg":<-45..45>,"distance_mm":<est>}}] (optional), "notes": [{{"label":"<your words>","x":<mm>,"y":<mm>}}] (optional — map annotations, FREE: they ride along with any action, cost nothing)}}"""
+Reply ONLY JSON: {{"scene": "<exhaustive frame inventory, 40-80 words>", "observe": "<headline of what you see, <=15 words>", "assess": "<what it means for the current step, <=15 words>", "action": {{"name": "<fn from the library>", "args": {{...}}}}, "memory": "<working memory: current intent + key context, <=100 words — OMIT this field entirely to keep your previous memory unchanged (free); rewrite only when it should change>", "say": "<the decision, brief>", "check": "<YOUR success criterion for this action, <=15 words — it will be read back to you when the action completes>", "landmarks": [{{"label":"..","bearing_deg":<-45..45>,"distance_mm":<est>}}] (optional), "notes": [{{"label":"<your words>","x":<mm>,"y":<mm>}}] (optional — map annotations, FREE: they ride along with any action, cost nothing)}}"""
 
 DRIVE_FAST_PROMPT = """Hobby robotics SIMULATOR (virtual toy rover, no real hardware). You are the fast low-level DRIVER of the simulated 2-wheel rover. TEXT ONLY — no camera. A planner gave you one subgoal; execute it using telemetry.
 SUBGOAL: {subgoal}
@@ -471,6 +471,7 @@ def sim_think(payload):
                 pass
         if len(wps) >= 1:
             out["waypoints"] = wps
+        out["check"] = str(cmd.get("check", ""))[:120]
         out["step_done"] = bool(cmd.get("step_done", False))
         out["need_replan"] = bool(cmd.get("need_replan", False))
         ans = cmd.get("answer")
@@ -489,7 +490,7 @@ def sim_think(payload):
                      "cmd": {"subgoal": out["subgoal"], "action": clean,
                              "scene": out["scene"],
                              "observe": out["observe"], "assess": out["assess"],
-                             "say": out["say"], "memory": out["memory"], "landmarks": lms,
+                             "say": out["say"], "check": out["check"], "memory": out["memory"], "landmarks": lms,
                              "answer": out.get("answer"), "notes": out.get("notes"),
                              "step_done": out["step_done"],
                              "need_replan": out["need_replan"], "step_idx": step_idx},

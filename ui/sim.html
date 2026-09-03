@@ -631,7 +631,10 @@ function step(){
     const nextWp = () => {
       wpPhase = 'drive';
       if(++wpIdx >= wpList.length){
-        wpActive = false; driverStatus = 'done'; stopMotors();
+        wpActive = false; stopMotors();
+        driverStatus = actionCheck
+          ? `done — your own success check for this path was: "${actionCheck}". Verify honestly: met or not? If not, change approach.`
+          : 'done';
         tevent('waypoints_done', `plotted path complete (${wpList.length} points)`);
         document.getElementById('sgstat').textContent = 'driver: path complete ✓';
       }
@@ -795,7 +798,7 @@ function manualDrive(){
 // DRIVER (fast, telemetry-only, no camera) executes them, reports done/blocked.
 let autopilot=false, thinkInflight=false, driveInflight=false;
 let lastThinkT=0, lastThinkLat=null, lastDriveCmdT=0;
-let currentSubgoal='', doneWhen=null, driverStatus='(starting)';
+let currentSubgoal='', doneWhen=null, driverStatus='(starting)', actionCheck='';
 let sgStartHeading=0, sgStartT=0, sgTurnAccum=0, sgDistAccum=0;
 
 // ---------- mission plan (planner layer) ----------
@@ -896,20 +899,17 @@ function checkDoneWhen(){
 setInterval(checkDoneWhen, 150);
 let llmMemory = '';          // thinker's scratchpad
 let sgRepeat = 0, lastSubgoalText = '', lastThinkPose = {x:0, y:0};
+let rejectStreak = 0;
 let lastScene = '';                 // thinker's dense frame inventory, fed forward
 let wpList = [], wpIdx = 0, wpActive = false, wpPhase = 'drive', wpPhaseT = 0;   // plotted path
 let activeAction = null;                        // current motion primitive
 
 function ingestWaypoints(points){
-  const clamped = (points||[]).map(w => {
-    let wx = w.x, wy = w.y;
-    for(const k of landmarkMap){
-      const d = Math.hypot(wx-k.x, wy-k.y);
-      if(d < 450 && d > 1){ wx = k.x + (wx-k.x)/d*450; wy = k.y + (wy-k.y)/d*450; }
-    }
-    return {x: Math.max(-1100, Math.min(1100, wx)), y: Math.max(-1100, Math.min(1100, wy)),
-            face_deg: w.face_deg, faceLabel: w.face, look_s: w.look_s};
-  });
+  // single clearance rule: pre-flight below (170mm vs mapped geometry).
+  // (the old 450mm landmark clamp contradicted it in corridors — see LAB_NOTES)
+  const clamped = (points||[]).map(w => ({
+    x: Math.max(-1100, Math.min(1100, w.x)), y: Math.max(-1100, Math.min(1100, w.y)),
+    face_deg: w.face_deg, faceLabel: w.face, look_s: w.look_s}));
   // densify (interpolants are plain; the original point keeps its look/face meta)
   wpList = [];
   let px = state.x, py = state.y, segOf = [];
@@ -935,7 +935,8 @@ function ingestWaypoints(points){
       for(let ix=gx-2; ix<=gx+2; ix++) for(let iy=gy-2; iy<=gy+2; iy++){
         const c = occupancy.get(ix+","+iy);
         if(c && Math.hypot(c.x-qx, c.y-qy) < 170){
-          tevent('path_rejected', `path NOT started: segment to your point ${segOf[i]+1} crosses mapped geometry near (${Math.round(qx)},${Math.round(qy)}) — replot around it, wider`);
+          rejectStreak++;
+          tevent('path_rejected', `path NOT started: segment to your point ${segOf[i]+1} crosses mapped geometry near (${Math.round(qx)},${Math.round(qy)})`);
           wpList = []; wpIdx = 0; wpActive = false;
           return;
         }
@@ -944,7 +945,7 @@ function ingestWaypoints(points){
     sx = w.x; sy = w.y;
   }
   wpIdx = 0; wpPhase = 'drive'; wpActive = wpList.length > 0;
-  if(wpActive) tevent('path_plotted', `${wpList.length} densified waypoints, pre-flight clear`);
+  if(wpActive){ rejectStreak = 0; tevent('path_plotted', `${wpList.length} densified waypoints, pre-flight clear`); }
 }
 
 function startAction(a){
@@ -981,7 +982,10 @@ function startAction(a){
 }
 
 function finishAction(status){
-  activeAction = null; stopMotors(); driverStatus = status;
+  activeAction = null; stopMotors();
+  driverStatus = status === 'done' && actionCheck
+    ? `done — your own success check for it was: "${actionCheck}". Verify honestly against what you NOW see/know: was it actually met? If not, do something DIFFERENT, not the same again.`
+    : status;
   document.getElementById('sgstat').textContent = 'action: ' + status + (status==='done' ? ' ✓' : ' ⛔');
   tevent(status==='done' ? 'action_done' : 'action_failed', currentSubgoal);
 }
@@ -1063,6 +1067,7 @@ function situation(){
   const rm = recentMotion();
   if(rm.rotated_deg_15s > 360 && rm.advanced_mm_15s < 150)
     parts.push(`SPINNING IN PLACE (${rm.rotated_deg_15s} deg rotated, only ${rm.advanced_mm_15s}mm net movement)`);
+  if(rejectStreak >= 3) parts.push(`${rejectStreak} CONSECUTIVE PATH REJECTIONS: per your own map, the route you keep attempting may be impassable — reconsider the approach entirely (different side, farther vantage, or observe from where a path CAN reach)`);
   // trail-crossing mirror: factual, ontology-free — "you stood here before"
   const oldCross = trail.find(pt => pt[2] && performance.now()-pt[2] > 45000 &&
     Math.hypot(pt[0]-state.x, pt[1]-state.y) < 300);
@@ -1248,7 +1253,7 @@ async function thinkOnce(){
       if(cmd.action && cmd.action.name){
         const desc = cmd.action.name + ' ' + JSON.stringify(cmd.action.args || {});
         const same = desc === currentSubgoal && driverStatus === 'running';
-        if(!same) startAction(cmd.action);
+        if(!same){ startAction(cmd.action); actionCheck = String(cmd.check || ''); }
         currentSubgoal = desc;
       }
       doneWhen = null;

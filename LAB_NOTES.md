@@ -1,5 +1,30 @@
 # Robotics Lab — Feature & Performance Notebook
 
+## 2026-09-03 — Session 081852 (250s, failed): the corridor contradiction + self-written checks
+**The long fruitless run decoded:** yellow sat near the south wall; its away-face
+opens into a ~430mm corridor. The waypoint CLAMP (≥450mm from block centers) and
+PRE-FLIGHT (no segment <170mm from mapped geometry) were MUTUALLY IMPOSSIBLE in
+that corridor — every path through was rejected by construction. 19 of 30 plotted
+paths bounced; the model dutifully "replotted wider" 19 times (wider = into the
+wall). 47/55 thinks stuck on one step. Also confirmed working: look-points used
+130x, 6 map notes written (the elicitation experiment PAID OFF), pre-flight
+prevented all path collisions.
+**Fixes:**
+1. *One clearance rule* — the 450mm landmark clamp is REMOVED (it predates
+   pre-flight and was sized for the 200mm placement-error era). Pre-flight vs the
+   occupancy map is the single source of truth; a 430mm corridor is now legally
+   passable down its center. Rule of the lab re-confirmed: two overlapping safety
+   systems with different geometry = a contradiction machine.
+2. *Self-written action checks (Mason's idea)* — every action may carry
+   "check": "<=15-word success criterion". On completion the system reads it back:
+   "your own check was X — verify honestly: met or not? If not, do something
+   DIFFERENT." The model writes the test; code replays it at exactly the right
+   moment. Motion now carries a reason, and completion demands a verdict.
+3. *Rejection-streak mirror* — 3+ consecutive pre-flight rejections → situation
+   line: "per your own map this route may be impassable — reconsider the approach
+   entirely." Converts silent futility into a visible fork.
+
+
 ## 2026-09-03 — Trajectories 2.0: look-points + pre-flight validation (Mason)
 **Mason's three observations on plotted paths:** (1) trajectories get abandoned
 mid-flight; (2) it never stops to LOOK at a point — paths were pure locomotion,
