@@ -1,5 +1,29 @@
 # Robotics Lab — Feature & Performance Notebook
 
+## 2026-09-03 — The couch trap + AMBIGUITY MODE (Mason's design)
+**Session 091747:** rover labeled the slate-blue COUCH "blue block", occ-snap glued
+the label onto doorway WALL geometry, and it spent 10 thinks trying to orbit a
+wall (9 pre-flight rejections) — while its own scenes said "no number on blue
+face" TWICE. It had disconfirming evidence and no framework for it: the mission
+model assumed one color-match = the unique target. Phantom mirror couldn't help
+(label sat on real geometry — identity error, not position error; only
+VERIFICATION resolves identity).
+**Mason's countermeasure — ambiguity as curriculum:**
+1. New map variant "house_blue": every block is blue. "Find the number on the
+   blue block" now REQUIRES discovering multiplicity and verifying candidates —
+   nothing anywhere tells it there are five; the discovery is the test.
+2. Twin-object naming (code bookkeeping): same-label reports far (>600mm) from
+   the original become numbered twins ("blue block #2") instead of collapsing
+   into one averaged landmark; label-match merging now requires proximity.
+3. CANDIDATE DISCIPLINE doctrine (generic method, zero world facts): a
+   description match is a CANDIDATE, only the number verifies; enumerate, verify
+   face-by-face, cross off empties with notes, check notes before re-verifying.
+   Solves the couch case and the all-blue case with the same principle.
+This is the best test yet of un-hardcoded reasoning: the system provides naming
+hygiene and a verification ethic; whether it realizes "there are several" and
+runs a checklist is entirely on the model.
+
+
 ## 2026-09-03 — Phantom landmarks: the map could not be corrected (Mason's catch)
 **Report:** purple labeled far closer than reality (vision depth error, placed
 into unscanned space where no occ-snap could fix it) → rover orbited a block
