@@ -1,5 +1,26 @@
 # Robotics Lab — Feature & Performance Notebook
 
+## 2026-09-03 — Second stuck-scan (090353): the PLAN was the trap
+**Different from the first stuck-scan.** The rover MOVED this time (1.3m; used its
+own invented "potted plant" label as a goto target; map_seen 4%→26%) — then parked
+22 thinks at one spot rotating. Cause: plan step 2 was "scan around the plant for
+the purple block" — purple sat behind an interior wall, the landmark_known check
+could never fire, and the plan contained no relocation step. Plan-obedience (which
+we deliberately built) held it on an unachievable step; the occlusion doctrine had
+only been given to the THINKER, never the PLANNER. Also observed: interleaved
+turns kept resetting the scan sweep, so the 360°-relocate verdict never fired;
+the stationary mirror fired but lost to plan-obedience. Lesson: mirrors lose to
+missions — fix the mission source.
+**Fixes:**
+1. *Planner occlusion doctrine* — never write "scan for X" as an early step;
+   write explore-until-sighted (move to next unseen region via doorways, scan,
+   repeat), relocation between scans grows visibility.
+2. *Step-stall escape (code)* — same step for 75s with map_seen_pct unchanged
+   (<3% growth) → forced replan WITH current knowledge (the second plan is
+   written against the discovered map, not the blank one). Generic: measures
+   progress against the world, not any ontology.
+
+
 ## 2026-09-03 — Second map: house floor (rooms + furniture), swappable worlds
 **Built per Mason:** the world is now a swappable map system (🗺 dropdown, or
 ?map=house). Map 2 = the floor of a house interior, deliberately unrecognizable
