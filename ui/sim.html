@@ -676,7 +676,10 @@ function step(){
       const omega = (50*Math.PI/180) / (gap/1000);
       const cap = Math.max(0.03, Math.min(0.09, omega*BASE/(2*MAXV)));
       targetL = dir*cap; targetR = -dir*cap;
-      if(Math.abs(sgTurnAccum*180/Math.PI) >= 380) finishAction('done');  // full sweep, nothing commanded
+      if(Math.abs(sgTurnAccum*180/Math.PI) >= 380){
+        finishAction('done');
+        driverStatus = 'done — a FULL 360° was swept from this exact spot. Whatever you were looking for is NOT visible from here; scanning or turning here again is pointless. RELOCATE to a new vantage (another room via a doorway, past the furniture) and scan there.';
+      }
     } else if(A.name==='rotate_until_clear'){
       const dir = (ar.direction==='left') ? -1 : 1;
       const clr = Math.min(noseUS(0), noseUS(Math.PI/6), noseUS(-Math.PI/6));
@@ -876,6 +879,8 @@ let flyLast = performance.now();
 function flyCam(){
   const now = performance.now(), dt = Math.min((now-flyLast)/1000, .05); flyLast = now;
   if(document.getElementById('followcam').checked) return;   // follow mode owns the target
+  const ae = document.activeElement;
+  if(ae && /^(input|textarea|select)$/i.test(ae.tagName)) return;   // typing, not flying
   const f=(keys['w']||keys['arrowup'])?1:0, b=(keys['s']||keys['arrowdown'])?1:0;
   const lft=(keys['a']||keys['arrowleft'])?1:0, rgt=(keys['d']||keys['arrowright'])?1:0;
   const up=(keys['e'])?1:0, dn=(keys['q'])?1:0;
@@ -1167,6 +1172,9 @@ function situation(){
   if(rm.rotated_deg_15s > 360 && rm.advanced_mm_15s < 150)
     parts.push(`SPINNING IN PLACE (${rm.rotated_deg_15s} deg rotated, only ${rm.advanced_mm_15s}mm net movement)`);
   if(rejectStreak >= 3) parts.push(`${rejectStreak} CONSECUTIVE PATH REJECTIONS: per your own map, the route you keep attempting may be impassable — reconsider the approach entirely (different side, farther vantage, or observe from where a path CAN reach)`);
+  const lastMove = trail.length ? trail[trail.length-1][2] : null;
+  if(lastMove && performance.now()-lastMove > 40000)
+    parts.push(`STATIONARY ${Math.round((performance.now()-lastMove)/1000)}s: you have not relocated — from a fixed spot, nothing new will ever enter view`);
   // trail-crossing mirror: factual, ontology-free — "you stood here before"
   const oldCross = trail.find(pt => pt[2] && performance.now()-pt[2] > 45000 &&
     Math.hypot(pt[0]-state.x, pt[1]-state.y) < 300);
@@ -1697,9 +1705,10 @@ function drawMind(){
 setInterval(drawMind, 250);
 // directed hunt: the goal NAMES the target block (random each round) — the rover
 // must navigate to that specific block and get behind it, not wander all of them
-const huntGoal = color =>
-  `Find the number painted on the ${color.toUpperCase()} block. It is on the face turned AWAY from the arena center, so you must go around behind the ${color} block to see it. Navigate there directly and investigate. When you can actually READ the number in the camera image, reply with "answer": {"number": <n>, "color": "${color}"}. Never guess.`;
-const isHuntGoal = t => /^Find the number painted on the/.test(t||'');
+const huntGoal = color => currentMap === 'house'
+  ? `You are in a house. You need to navigate around the house, locate the ${color.toUpperCase()} block, and determine what number it has on one of its sides. When you can actually READ the number in the camera image, reply with "answer": {"number": <n>, "color": "${color}"}. Never guess.`
+  : `Find the number painted on the ${color.toUpperCase()} block. It is on the face turned AWAY from the arena center, so you must go around behind the ${color} block to see it. Navigate there directly and investigate. When you can actually READ the number in the camera image, reply with "answer": {"number": <n>, "color": "${color}"}. Never guess.`;
+const isHuntGoal = t => /^(Find the number painted on the|You are in a house)/.test(t||'');
 document.getElementById('huntbtn').onclick = ()=>{
   document.getElementById('goal').value = huntGoal(secretTruth.color);
   document.getElementById('huntres').textContent = `goal set — target: the ${secretTruth.color} block`;
