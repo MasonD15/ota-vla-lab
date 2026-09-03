@@ -727,7 +727,7 @@ function step(){
   sgTurnAccum += w*dt;               // unwrapped rotation since subgoal start
   sgDistAccum += Math.abs(vv)*dt;    // distance traveled since subgoal start
   if(!trail.length || Math.hypot(state.x-trail[trail.length-1][0], state.y-trail[trail.length-1][1]) > 60){
-    trail.push([state.x, state.y]);
+    trail.push([state.x, state.y, now]);
     if(trail.length > 600) trail.shift();
   }
   state.th += w*dt;
@@ -1008,6 +1008,10 @@ function situation(){
   const rm = recentMotion();
   if(rm.rotated_deg_15s > 360 && rm.advanced_mm_15s < 150)
     parts.push(`SPINNING IN PLACE (${rm.rotated_deg_15s} deg rotated, only ${rm.advanced_mm_15s}mm net movement)`);
+  // trail-crossing mirror: factual, ontology-free — "you stood here before"
+  const oldCross = trail.find(pt => pt[2] && performance.now()-pt[2] > 45000 &&
+    Math.hypot(pt[0]-state.x, pt[1]-state.y) < 300);
+  if(oldCross) parts.push(`TRAIL CROSSING: you last stood within 300mm of this spot ~${Math.round((performance.now()-oldCross[2])/1000)}s ago`);
   const recentHits = thinkerEvents.filter(e => e.type==='collision' && performance.now()-e.t < 20000).length;
   if(recentHits) parts.push(`${recentHits} collision(s) in the last 20s`);
   if(sgRepeat >= 3) parts.push(`REPEATING YOURSELF: same subgoal ${sgRepeat+1}x with zero progress — this approach is NOT WORKING, do something different`);
@@ -1144,12 +1148,18 @@ async function thinkOnce(){
           think_latency_s: lastThinkLat,
           drive_period_s: driveTimes.length > 1
             ? +((driveTimes[driveTimes.length-1]-driveTimes[0])/(driveTimes.length-1)/1000).toFixed(1) : null},
-        model: tmodel,
+        model: tmodel, think_count: sessThinks,
         goal: document.getElementById('goal').value})});
     const cmd = await res.json();
     const rt = performance.now() - t0;
     if(cmd.error){ addLog({isErr:true, errText:cmd.error, rt}); }
     else if(autopilot){
+      if(Array.isArray(cmd.notes)) for(const n of cmd.notes){
+        const ex = poiMap.find(k => k.label === n.label);
+        if(ex){ ex.x = n.x; ex.y = n.y; }
+        else if(poiMap.length < 16) poiMap.push({label: n.label, x: n.x, y: n.y});
+        tevent('note', `map note: "${n.label}" at (${Math.round(n.x)},${Math.round(n.y)})`);
+      }
       if(cmd.scene) lastScene = cmd.scene;
       lastThinkLat = +(rt/1000).toFixed(1);
       // running narrative: observe → assess → decide, per think cycle

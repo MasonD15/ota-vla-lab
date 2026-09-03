@@ -228,6 +228,7 @@ YOUR MEMORY (notes you wrote last time):
 
 The first image is the rover camera POV. THE CAMERA IS FIXED, facing straight ahead — there is no pan. To look in a different direction, TURN THE ROVER.
 MIND'S EYE — the second image is YOUR MAP: only what you have discovered (grey dots = sonar-scanned geometry, orange dots = landmarks you labeled with their (x,y) in mm, blue = your trail, green arrow = YOU with your facing and printed pose). Coordinate grid in mm: +x right/east, +y up/north; heading 0 = +x, increasing counterclockwise (left). Unmarked space is UNKNOWN, not open. Telemetry pose_mm and each landmark's map_x/map_y give the same coordinates as numbers.
+DURABILITY: your "memory" field is 60 words and constantly rewritten — everything else you learn is forgotten. Your map annotations (points_of_interest) are the ONLY durable record of what you have discovered about PLACES. What is not written on the map does not persist.
 GRID VIEW — the same map as a text grid for precise planning ('.'=unknown, '#'=scanned obstacle/wall, letter=labeled block (first letter of its color), '@'=you). Each cell is 100mm (24x24); columns run x=-1200(left)→+1200(right), rows run y=+1200(top)→-1200(bottom). Convert cell(col,row) to mm: x=-1200+(col+0.5)*100, y=+1200-(row+0.5)*100. Lowercase letters = your own POI marks.
 {map_grid}
 PLOTTING A PATH — your strongest tool for maneuvers language cannot steer (going AROUND objects, reaching far sides, threading gaps): reply with "waypoints": [{{"x": <mm>, "y": <mm>}}, ...] — use 4-6 points for any go-around (2 points cannot trace a curve; the route must sweep AROUND, not cut across). Keep every point at least 450mm from block centers and away from grey dots. Code will drive them precisely, point by point, and report progress; you will see "following plotted path: waypoint k/n". Plot around known geometry — leave ~350mm clearance from dots and landmarks. Example: to view the far side of a block at (700,500) from the south, plot points sweeping around it: (350,350) → (350,700) → (700,860) then face it. Only re-plot if the path is wrong; while a path runs, missions/subgoals are unnecessary.
@@ -261,7 +262,7 @@ There is DELIBERATELY no orbit primitive — going around something is a THINKIN
 ORBIT RECIPE: read the target's map coordinates (grid + map_x/map_y), then plot an arc with follow_waypoints — 4-6 points spaced ~45-60° apart on a circle of radius 450-550mm around the target, starting from your side and sweeping to the far side. Check each point against the grid: never place one on or beside '#' cells or other letters; route the arc AWAY from walls and neighbors even if it means a wider detour. If the path stops early you will get a signal with WHERE it stopped and WHY — re-plot the remaining arc from that position, wider.
 Typical patterns: hunting → scan until seen+labeled, then goto; hidden far face → goto, then plot an arc (ORBIT RECIPE); tight spot → rotate_until_clear then move; long route → follow_waypoints.
 
-Reply ONLY JSON: {{"scene": "<exhaustive frame inventory, 40-80 words>", "observe": "<headline of what you see, <=15 words>", "assess": "<what it means for the current step, <=15 words>", "action": {{"name": "<fn from the library>", "args": {{...}}}}, "memory": "<plan + notes, <=60 words>", "say": "<the decision, brief>", "landmarks": [{{"label":"..","bearing_deg":<-45..45>,"distance_mm":<est>}}] (optional), "waypoints": [{{"x":<mm>,"y":<mm>}}] (optional — plotted path, code-executed)}}"""
+Reply ONLY JSON: {{"scene": "<exhaustive frame inventory, 40-80 words>", "observe": "<headline of what you see, <=15 words>", "assess": "<what it means for the current step, <=15 words>", "action": {{"name": "<fn from the library>", "args": {{...}}}}, "memory": "<plan + notes, <=60 words>", "say": "<the decision, brief>", "landmarks": [{{"label":"..","bearing_deg":<-45..45>,"distance_mm":<est>}}] (optional), "notes": [{{"label":"<your words>","x":<mm>,"y":<mm>}}] (optional — map annotations, FREE: they ride along with any action, cost nothing)}}"""
 
 DRIVE_FAST_PROMPT = """Hobby robotics SIMULATOR (virtual toy rover, no real hardware). You are the fast low-level DRIVER of the simulated 2-wheel rover. TEXT ONLY — no camera. A planner gave you one subgoal; execute it using telemetry.
 SUBGOAL: {subgoal}
@@ -358,6 +359,11 @@ def sim_think(payload):
         prev_scene=(payload.get("prev_scene") or "(first look — no previous scene)")[:700],
         map_grid=payload.get("map_grid") or "(no grid yet)",
         plan=plan_txt, step_no=step_no, step_text=step_text, step_success=step_success)
+    tc = payload.get("think_count")
+    if isinstance(tc, int) and tc > 0 and tc % 5 == 0:
+        prompt += ("\n\nSTANDING QUESTION (asked periodically): is there anything you now know about "
+                   "places in this arena that future-you would wish was written on the map? "
+                   "If yes, add it to \"notes\" — it is free and rides along with your action.")
     if payload.get("strategy"):
         prompt += ("\n\nSEARCH STRATEGY (assigned for this experiment — follow it consistently):\n"
                    + str(payload["strategy"])[:500])
@@ -443,6 +449,14 @@ def sim_think(payload):
                "cost_usd": cost, "context": prompt, "raw": raw, "model": body["model"]}
         lms = sanitize_landmarks(cmd, sensors)
         if lms: out["landmarks"] = lms
+        nts = []
+        for n in (cmd.get("notes") or [])[:3]:
+            try:
+                nts.append({"label": str(n.get("label", ""))[:24] or "note",
+                            "x": _f(n.get("x"), -1150, 1150, 0), "y": _f(n.get("y"), -1150, 1150, 0)})
+            except (TypeError, ValueError):
+                pass
+        if nts: out["notes"] = nts
         wps = []
         for w in (cmd.get("waypoints") or [])[:8]:
             try:
@@ -471,7 +485,7 @@ def sim_think(payload):
                              "scene": out["scene"],
                              "observe": out["observe"], "assess": out["assess"],
                              "say": out["say"], "memory": out["memory"], "landmarks": lms,
-                             "answer": out.get("answer"),
+                             "answer": out.get("answer"), "notes": out.get("notes"),
                              "step_done": out["step_done"],
                              "need_replan": out["need_replan"], "step_idx": step_idx},
                      "usage": out["usage"], "cost_usd": cost, "latency_ms": latency_ms})
