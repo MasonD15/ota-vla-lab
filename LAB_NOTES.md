@@ -1,5 +1,26 @@
 # Robotics Lab — Feature & Performance Notebook
 
+## 2026-09-02 — De-hardcoding the ontology (Mason's catch)
+**Mason noticed the object inventory was leaking into the AI:** the planner prompt
+literally listed "five colored blocks (red, blue, green, yellow, purple)"; the
+label-conflict guard and the scene auto-label extractor both hardcoded the same
+color palette. The AI wasn't discovering the world — it was confirming a cheat
+sheet. All three removed:
+1. Planner now told the arena CONTENTS ARE UNKNOWN — discovery/naming/mapping is
+   the rover's job.
+2. Thinker told labels are ITS OWN INVENTION — name objects by whatever it
+   observes; be self-consistent. No predefined list anywhere in its context.
+3. Code generalized: conflict guard compares the AI's own first descriptor words
+   (any vocabulary); auto-label extraction now parses any "<descriptor> <object-
+   noun>" phrasing (block/cube/box/pillar/object/obstacle) with a stopword filter.
+The mission may still NAME its target ("the yellow block") — that's the task
+brief, not a world inventory. Ground-truth block definitions remain only in the
+WORLD-BUILDING code (the sim must construct something) and the answer scorer —
+neither is visible to any model. The system is now genuinely
+randomization-ready: change shapes, colors, counts — nothing in the AI's context
+would know the difference.
+
+
 ## 2026-09-01 — The best near-miss yet: read the answer, drove on (session 172348)
 **→ Preserved verbatim with full analysis in NOTABLE_MOMENTS.md (#1) — per Mason:**
 **the model followed the mission direction BETTER than expected; over-fidelity,**

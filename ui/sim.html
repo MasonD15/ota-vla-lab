@@ -397,7 +397,10 @@ function occRayDist(worldAngle, ox=state.x, oy=state.y){
   }
   return null;
 }
-const colorOf = s => (String(s).toLowerCase().match(/red|blue|green|yellow|purple/)||[null])[0];
+// first meaningful descriptor word of a label (no hardcoded palette — the AI
+// invents its own object names; we only compare ITS words against ITS words)
+const STOPW = /\b(the|a|an|large|small|big|little|near|far|distant|left|right|another|second|first|new)\b/g;
+const colorOf = s => (String(s).toLowerCase().replace(STOPW,' ').trim().split(/\s+/)[0] || null);
 function occScan(){                  // called ~5Hz: convert sonar returns to map points
   for(const off of [0, Math.PI/6, -Math.PI/6]){
     const d = ultrasonic(off);
@@ -1199,17 +1202,19 @@ async function thinkOnce(){
       }
       let lmReports = Array.isArray(cmd.landmarks) ? [...cmd.landmarks] : [];
       if(cmd.scene){
-        const re = /(red|blue|green|yellow|purple)\s+block[^.;]{0,60}?(\d{2,4})\s*mm[^.;]{0,40}?(?:(-?\d{1,3})\s*(?:deg|degrees)?\s*(left|right)?|bearing\s*(-?\d{1,3}))/gi;
+        const re = /([a-z]+)\s+(block|cube|box|pillar|object|obstacle)[^.;]{0,60}?(\d{2,4})\s*mm[^.;]{0,40}?(?:(-?\d{1,3})\s*(?:deg|degrees)?\s*(left|right)?|bearing\s*(-?\d{1,3}))/gi;
         let m;
         while((m = re.exec(cmd.scene))){
-          const color = m[1].toLowerCase();
-          if(lmReports.some(l => String(l.label||'').toLowerCase().includes(color))) continue;
-          let brg = parseFloat(m[3] ?? m[5] ?? 0);
-          if((m[4]||'').toLowerCase() === 'left') brg = -Math.abs(brg);
-          if((m[4]||'').toLowerCase() === 'right') brg = Math.abs(brg);
+          const desc = m[1].toLowerCase();
+          if(/^(the|a|an|large|small|big|little|near|far|distant|left|right|another|one|this|that)$/.test(desc)) continue;
+          const label = `${desc} ${m[2].toLowerCase()}`;
+          if(lmReports.some(l => colorOf(l.label) === desc)) continue;
+          let brg = parseFloat(m[4] ?? m[6] ?? 0);
+          if((m[5]||'').toLowerCase() === 'left') brg = -Math.abs(brg);
+          if((m[5]||'').toLowerCase() === 'right') brg = Math.abs(brg);
           if(Math.abs(brg) <= 60){
-            lmReports.push({label: color+' block', bearing_deg: brg, distance_mm: parseFloat(m[2])});
-            tevent('auto_label', `extracted '${color} block' from scene text (model described it but did not label)`);
+            lmReports.push({label, bearing_deg: brg, distance_mm: parseFloat(m[3])});
+            tevent('auto_label', `extracted '${label}' from scene text (model described it but did not label)`);
           }
         }
       }
