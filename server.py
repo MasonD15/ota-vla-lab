@@ -262,7 +262,7 @@ There is DELIBERATELY no orbit primitive — going around something is a THINKIN
 ORBIT RECIPE: read the target's map coordinates (grid + map_x/map_y), then plot an arc with follow_waypoints — 4-6 points spaced ~45-60° apart on a circle of radius 450-550mm around the target, starting from your side and sweeping to the far side. Check each point against the grid: never place one on or beside '#' cells or other letters; route the arc AWAY from walls and neighbors even if it means a wider detour. If the path stops early you will get a signal with WHERE it stopped and WHY — re-plot the remaining arc from that position, wider.
 Typical patterns: hunting → scan until seen+labeled, then goto; hidden far face → goto, then plot an arc (ORBIT RECIPE); tight spot → rotate_until_clear then move; long route → follow_waypoints.
 
-Reply ONLY JSON: {{"scene": "<exhaustive frame inventory, 40-80 words>", "observe": "<headline of what you see, <=15 words>", "assess": "<what it means for the current step, <=15 words>", "action": {{"name": "<fn from the library>", "args": {{...}}}}, "memory": "<plan + notes, <=60 words>", "say": "<the decision, brief>", "landmarks": [{{"label":"..","bearing_deg":<-45..45>,"distance_mm":<est>}}] (optional), "notes": [{{"label":"<your words>","x":<mm>,"y":<mm>}}] (optional — map annotations, FREE: they ride along with any action, cost nothing)}}"""
+Reply ONLY JSON: {{"scene": "<exhaustive frame inventory, 40-80 words>", "observe": "<headline of what you see, <=15 words>", "assess": "<what it means for the current step, <=15 words>", "action": {{"name": "<fn from the library>", "args": {{...}}}}, "memory": "<working memory: current intent + key context, <=100 words — OMIT this field entirely to keep your previous memory unchanged (free); rewrite only when it should change>", "say": "<the decision, brief>", "landmarks": [{{"label":"..","bearing_deg":<-45..45>,"distance_mm":<est>}}] (optional), "notes": [{{"label":"<your words>","x":<mm>,"y":<mm>}}] (optional — map annotations, FREE: they ride along with any action, cost nothing)}}"""
 
 DRIVE_FAST_PROMPT = """Hobby robotics SIMULATOR (virtual toy rover, no real hardware). You are the fast low-level DRIVER of the simulated 2-wheel rover. TEXT ONLY — no camera. A planner gave you one subgoal; execute it using telemetry.
 SUBGOAL: {subgoal}
@@ -443,7 +443,7 @@ def sim_think(payload):
                "scene": str(cmd.get("scene", ""))[:700],
                "observe": str(cmd.get("observe", ""))[:160],
                "assess": str(cmd.get("assess", ""))[:160],
-               "memory": str(cmd.get("memory", ""))[:500],
+               "memory": str(cmd.get("memory", ""))[:800],
                "say": str(cmd.get("say", ""))[:200],
                "latency_ms": latency_ms, "usage": {"in": tin, "out": tout},
                "cost_usd": cost, "context": prompt, "raw": raw, "model": body["model"]}
@@ -646,7 +646,7 @@ def sim_drive(payload):
         out = {"left": max(-1, min(1, float(cmd.get("left", 0)))),
                "right": max(-1, min(1, float(cmd.get("right", 0)))),
                "say": str(cmd.get("say", ""))[:200],
-               "memory": str(cmd.get("memory", ""))[:500],
+               "memory": str(cmd.get("memory", ""))[:800],
                "latency_ms": latency_ms,
                "usage": {"in": tin, "out": tout},
                "cost_usd": round(tin * PRICE_IN / 1e6 + tout * PRICE_OUT / 1e6, 6),
