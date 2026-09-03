@@ -1,5 +1,23 @@
 # Robotics Lab — Feature & Performance Notebook
 
+## 2026-09-03 — Phantom landmarks: the map could not be corrected (Mason's catch)
+**Report:** purple labeled far closer than reality (vision depth error, placed
+into unscanned space where no occ-snap could fix it) → rover orbited a block
+that wasn't there. **Root cause worse than bad depth: the landmark sanitizer's
+same-label filter (an old anti-duplication guard) silently DROPPED every
+corrective re-report — a misplaced landmark was PERMANENT.** Refinement couldn't
+save it either (only pulls ≤450mm toward clusters; the phantom was farther off).
+**Fixed — the map is now self-correcting:**
+1. Same-label re-reports pass through and update position (junk filters kept).
+2. New reply field "forget": [labels] — delete landmarks it believes are wrong;
+   also clears their occupancy-cell stamps.
+3. PHANTOM SUSPECT mirror (pure map logic): a landmark within 700mm whose mapped
+   spot is in SEEN space with no geometry cluster within 300mm is provably
+   misplaced — situation line says so and suggests forget/re-report.
+4. Doctrine: camera depth is unreliable; trust observed geometry over remembered
+   guesses; fix the map when it disagrees with your eyes.
+
+
 ## 2026-09-03 — Second stuck-scan (090353): the PLAN was the trap
 **Different from the first stuck-scan.** The rover MOVED this time (1.3m; used its
 own invented "potted plant" label as a goto target; map_seen 4%→26%) — then parked
