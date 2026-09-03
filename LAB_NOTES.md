@@ -1,5 +1,27 @@
 # Robotics Lab — Feature & Performance Notebook
 
+## 2026-09-02 — Sensor calibration bug (Mason's catch): sonar measured from CENTER
+**Mason asked the right instrument question: "would a front-mounted ultrasonic read
+zero flat against a wall?" Answer: NO — it read 110mm.** Rays marched from the
+rover's CENTER, so every distance the AI ever received was inflated by its own
+hull radius. Related visual confusion: the physics hull is a 110mm circle
+(≈ the body's corner diagonal), so side-on the rover LOOKS ~20mm short of things
+it is physically touching — hitbox and mind map disagreed with the eye.
+**Fixed:**
+1. All REPORTED distances re-origined to the front bumper (0 = touching):
+   ultrasonics, forward_clearance, radar sectors, rear memory. Verified: flush
+   wall = 0mm, 100mm gap = 100mm. Internal geometry (occupancy, landmarks,
+   collision) stays center-based — world coordinates were always correct.
+2. Budgets recomputed for the new origin (bumper clearance − 40mm margin —
+   numerically equivalent to before, so behavior unchanged; meaning now honest).
+3. Prompt: "all distances measured from your FRONT BUMPER — 0 = touching";
+   contact threshold text 200→100mm.
+4. THE HULL IS NOW VISIBLE: a translucent green ring at true collision radius on
+   the 3D rover and a matching circle on the mind map — "touching" finally looks
+   like touching. Sim-to-real note: on the physical rover this same offset exists
+   (sensor mount position vs hull extent) and must be calibrated identically.
+
+
 ## 2026-09-02 — De-hardcoding the ontology (Mason's catch)
 **Mason noticed the object inventory was leaking into the AI:** the planner prompt
 literally listed "five colored blocks (red, blue, green, yellow, purple)"; the

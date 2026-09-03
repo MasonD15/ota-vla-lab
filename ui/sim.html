@@ -308,6 +308,9 @@ for (const [wx,wy] of [[60,80],[60,-80],[-60,80],[-60,-80]]){
 // camera post + lens marker
 const post = new THREE.Mesh(new THREE.BoxGeometry(10,10,60),
   new THREE.MeshStandardMaterial({color:0x8d939c})); post.position.set(80,0,115); car.add(post);
+const hullRing = new THREE.Mesh(new THREE.RingGeometry(RADIUS-3, RADIUS+1, 48),
+  new THREE.MeshBasicMaterial({color:0x4ade80, transparent:true, opacity:0.25, side:THREE.DoubleSide}));
+hullRing.position.z = 2; car.add(hullRing);   // the TRUE collision boundary
 car.traverse(o => { if(o.isMesh){ o.castShadow = true; o.receiveShadow = true; } });
 scene.add(car);
 
@@ -437,7 +440,7 @@ function occRadar(){
     if(dist < sect[idx]){ sect[idx] = dist; what[idx] = c.label; }
   }
   const out = {};
-  RADAR_NAMES.forEach((n,i) => out[n] = {mm: Math.round(sect[i]), what: what[i]});
+  RADAR_NAMES.forEach((n,i) => out[n] = {mm: sect[i] >= 3000 ? 3000 : Math.max(0, Math.round(sect[i] - RADIUS)), what: what[i]});
   return out;
 }
 
@@ -458,7 +461,7 @@ function occNearest(centerRad, arcRad, maxMm){
 // full onboard sensor suite — exactly what gets sent to the LLM each call
 let lastSpeed = 0, battV = 8.4;
 function readSensors(){
-  const uf = ultrasonic(0), ul = ultrasonic(Math.PI/6), ur = ultrasonic(-Math.PI/6);
+  const uf = noseUS(0), ul = noseUS(Math.PI/6), ur = noseUS(-Math.PI/6);
   return {
     ultrasonic_front_mm: uf,
     ultrasonic_left30_mm: ul,
@@ -466,8 +469,8 @@ function readSensors(){
     forward_clearance_mm: Math.min(uf, ul, ur),  // "room ahead": worst of the 3 rays
     // mission-sizing budgets: how far it can actually go before contact.
     // advance = live forward cone minus hull halfwidth; reverse = MEMORY only
-    advance_budget_mm: Math.max(0, Math.min(uf, ul, ur) - 150),
-    reverse_budget_mm: Math.max(0, occNearest(Math.PI, Math.PI*2/3, 3000) - 150),
+    advance_budget_mm: Math.max(0, Math.min(uf, ul, ur) - 40),
+    reverse_budget_mm: Math.max(0, occNearest(Math.PI, Math.PI*2/3, 3000) - RADIUS - 40),
     heading_deg: Math.round(((state.th*180/Math.PI)%360+360)%360),
     speed_mm_s: Math.round(lastSpeed),
     motor_left_power: +state.l.toFixed(2),
@@ -485,7 +488,7 @@ function readSensors(){
       return {label:k.label, map_x:Math.round(k.x), map_y:Math.round(k.y),
               distance_mm:Math.round(Math.hypot(dx,dy)), bearing_deg:Math.round(-b)};
     }),
-    rear_memory_mm: occNearest(Math.PI, Math.PI*2/3, 3000),  // remembered, NOT sensed
+    rear_memory_mm: Math.max(0, occNearest(Math.PI, Math.PI*2/3, 3000) - RADIUS),  // remembered, NOT sensed
     map_radar: occRadar(),          // remembered surroundings, per 45-deg sector
     map_cells_scanned: occupancy.size,
     known_landmarks: landmarkMap.map(k => {
@@ -499,6 +502,9 @@ function readSensors(){
 }
 
 const STANDOFF = 120;   // minimum standoff shell beyond the hull — code-enforced
+// sensors REPORT from the front bumper (hull edge): 0 = touching.
+// internal geometry (occupancy, collision, landmark math) stays center-based.
+function noseUS(off=0){ return Math.max(0, ultrasonic(off) - RADIUS); }
 function collides(nx,ny,margin=0){
   for(const o of obstacles)
     if(Math.abs(nx-o.x) < o.hw+RADIUS+margin && Math.abs(ny-o.y) < o.hd+RADIUS+margin) return true;
@@ -584,7 +590,7 @@ function step(){
       if(Math.abs(sgTurnAccum*180/Math.PI) >= 380) finishAction('done');  // full sweep, nothing commanded
     } else if(A.name==='rotate_until_clear'){
       const dir = (ar.direction==='left') ? -1 : 1;
-      const clr = Math.min(ultrasonic(0), ultrasonic(Math.PI/6), ultrasonic(-Math.PI/6));
+      const clr = Math.min(noseUS(0), noseUS(Math.PI/6), noseUS(-Math.PI/6));
       if(clr >= (ar.clearance_mm||800)) finishAction('done');
       else if(Math.abs(sgTurnAccum*180/Math.PI) >= 380) finishAction('blocked');
       else { targetL = dir*0.25; targetR = -dir*0.25; }
@@ -678,7 +684,7 @@ function step(){
       driverStatus='blocked'; stopMotors();
       if(wpActive || activeAction){
         const who = activeAction ? activeAction.name : 'follow_waypoints';
-        tevent('action_blocked', `${who} STOPPED BEFORE CONTACT (standoff): potential collision ahead — progress ${actionProgress()}, pose (${Math.round(state.x)},${Math.round(state.y)}) h${Math.round(((state.th*180/Math.PI)%360+360)%360)}, obstruction ~${ultrasonic(0)}mm ahead — re-plot AROUND this spot`);
+        tevent('action_blocked', `${who} STOPPED BEFORE CONTACT (standoff): potential collision ahead — progress ${actionProgress()}, pose (${Math.round(state.x)},${Math.round(state.y)}) h${Math.round(((state.th*180/Math.PI)%360+360)%360)}, obstruction ~${noseUS(0)}mm ahead — re-plot AROUND this spot`);
         wpActive=false; activeAction=null;
       }
       tevent('standoff_stop', 'code override: force-stopped at minimum standoff distance');
@@ -707,7 +713,7 @@ function step(){
         driverStatus='blocked'; stopMotors();
         if(wpActive || activeAction){
           const who = activeAction ? activeAction.name : 'follow_waypoints';
-          tevent('action_blocked', `${who} STOPPED: contact while moving — progress ${actionProgress()}, pose (${Math.round(state.x)},${Math.round(state.y)}) h${Math.round(((state.th*180/Math.PI)%360+360)%360)}, front ${ultrasonic(0)}mm — re-plot AROUND this spot`);
+          tevent('action_blocked', `${who} STOPPED: contact while moving — progress ${actionProgress()}, pose (${Math.round(state.x)},${Math.round(state.y)}) h${Math.round(((state.th*180/Math.PI)%360+360)%360)}, front ${noseUS(0)}mm — re-plot AROUND this spot`);
           wpActive=false; activeAction=null;
         }
         document.getElementById('sgstat').textContent='driver: blocked ⛔ (collision — holding for replan)';
@@ -732,7 +738,7 @@ function step(){
   wheels.forEach(wh => wh.rotation.y += spin);
   document.getElementById('hl').textContent = state.l.toFixed(2);
   document.getElementById('hr').textContent = state.r.toFixed(2);
-  document.getElementById('hd').textContent = d;
+  document.getElementById('hd').textContent = Math.max(0, d - RADIUS);
   const hc = document.getElementById('hcol');
   hc.textContent = collisionCount;
   hc.style.color = colliding ? '#f87171' : '';
@@ -977,7 +983,7 @@ const poiMap = [];           // thinker-marked points of interest (map annotatio
 const motionHist = [];
 setInterval(()=>{
   motionHist.push({t: performance.now(), th: state.th, x: state.x, y: state.y,
-                   front: ultrasonic(0)});
+                   front: noseUS(0)});
   while(motionHist.length && performance.now()-motionHist[0].t > 16000) motionHist.shift();
 }, 500);
 
@@ -991,7 +997,7 @@ function tevent(type, detail){
 // code-assessed situation headline: salient, deterministic, can't hallucinate
 function situation(){
   const parts = [];
-  const front = ultrasonic(0);
+  const front = noseUS(0);
   if(colliding) parts.push("IN CONTACT with an obstacle RIGHT NOW");
   if(stuckTime > 0.5) parts.push(`STUCK for ${stuckTime.toFixed(1)}s (commanding motion, not moving)`);
   const old = motionHist.find(m => performance.now()-m.t > 4000);
@@ -1508,6 +1514,8 @@ function drawMind(){
     mmc.closePath(); mmc.fill();
     mmc.fillText(k.label.slice(0,10), X(k.x)+5, Y(k.y)+2);
   }
+  mmc.strokeStyle='rgba(74,222,128,.45)'; mmc.lineWidth=1;
+  mmc.beginPath(); mmc.arc(X(state.x), Y(state.y), RADIUS*sc, 0, 7); mmc.stroke();
   mmc.save(); mmc.translate(X(state.x),Y(state.y)); mmc.rotate(-state.th);
   mmc.fillStyle='#4ade80'; mmc.beginPath();
   mmc.moveTo(7,0); mmc.lineTo(-4,4.5); mmc.lineTo(-4,-4.5); mmc.closePath(); mmc.fill();

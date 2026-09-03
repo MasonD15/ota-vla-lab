@@ -105,7 +105,7 @@ LANDMARKS: telemetry "known_landmarks" lists objects you already labeled, with l
 Decide motor powers, optionally re-aim the camera, and update your memory.
 Reply ONLY with JSON: {{"left": <-1..1>, "right": <-1..1>, "cam_pan": <-60..60 deg, optional>, "observe": "<what you see right now, <=15 words>", "assess": "<what it means for the current step/goal, <=15 words>", "memory": "<running plan + notes to your future self, max 60 words>", "say": "<the action decision, brief>", "landmarks": [{{"label": "<short name>", "bearing_deg": <-45..45>, "distance_mm": <estimate>}}] (optional)}}
 left/right are wheel powers. Equal+positive=forward, opposite=spin turn.
-Any ultrasonic under 200mm = about to hit something on that side; turn away.
+Any ultrasonic under 100mm = about to hit something on that side (0 = touching); turn away.
 SPEED is yours to choose via power magnitude: creep at 0.1-0.3 near obstacles or when unsure, 0.5-0.8 in open space.
 A reflex governor physically slows forward motion when anything is under 400mm ahead ("speed_governor_active": true means it is engaged right now); reverse is never limited.
 COLLISIONS: "colliding": true means you are IN CONTACT with an obstacle RIGHT NOW — immediately reverse (negative powers) or pivot away. "stuck_s" = seconds you have been jammed. Every collision is a failure; keep "collisions_this_session" at zero.
@@ -220,7 +220,7 @@ ORIENTATION — how to read your compass and bearings:
 - Therefore a landmark's bearing_deg is EXACTLY how many degrees to turn to face it: bearing +30 → turn RIGHT 30 (turned_deg gt 28); bearing -60 → turn LEFT 60.
 - turned_deg counts degrees actually rotated since the current subgoal began.
 
-ONBOARD TELEMETRY:
+ONBOARD TELEMETRY (all distances measured from your FRONT BUMPER — 0mm = touching):
 {telemetry}
 
 YOUR MEMORY (notes you wrote last time):
