@@ -1,5 +1,29 @@
 # Robotics Lab — Feature & Performance Notebook
 
+## 2026-09-03 — Why doesn't it take notes? (Mason's question; elicitation not scripting)
+**Evidence: mark used 2x in 643 thinks across 68 sessions.** The ability existed;
+the habit never formed. Diagnosis (constraint: the behavior must come from the AI,
+not be hardcoded):
+1. *The action-slot tax* — mark competed with MOTION in the one-action-per-reply
+   slot: taking a note literally cost a movement turn, and the mission always
+   outbids the notebook. → notes are now a FREE reply field riding along with any
+   action.
+2. *Schema invisibility* — models emit what the reply schema shows; notes weren't
+   in it. → now in the schema.
+3. *No persistence pressure* — nothing made forgetting FELT. → truthful framing:
+   "memory is 60 words and constantly rewritten; map annotations are the only
+   durable record of places; what is not written does not persist."
+4. *No mirror of redundancy* — it never saw itself re-covering ground. → factual,
+   ontology-free situation line: "TRAIL CROSSING: you last stood within 300mm of
+   this spot ~Ns ago." Plus a STANDING QUESTION every 5th think: "anything future-
+   you would wish was on the map?" — reflection prompted, content its own.
+**The design line we're walking:** code may shape AFFORDANCES (make noting free),
+INCENTIVES (make forgetting visible), and REFLECTION (ask, don't tell) — but never
+the ontology or the decision. What to note, how to name it, whether to bother:
+entirely the model's. Metric to watch: notes per session, and whether re-search
+time drops when notes exist.
+
+
 ## 2026-09-02 — Sensor calibration bug (Mason's catch): sonar measured from CENTER
 **Mason asked the right instrument question: "would a front-mounted ultrasonic read
 zero flat against a wall?" Answer: NO — it read 110mm.** Rays marched from the
