@@ -86,7 +86,10 @@
       camera follows rover
     </label>
     </details>
-    <button id="huntbtn" style="width:100%; margin:4px 0; padding:7px; border:none; border-radius:8px; background:#26303f; color:#e6b422; font-weight:600; font-size:11.5px; cursor:pointer">🎯 Set goal: hidden-number hunt</button>
+    <div style="display:flex; gap:6px; margin:4px 0">
+      <button id="huntbtn" style="flex:1; padding:7px; border:none; border-radius:8px; background:#26303f; color:#e6b422; font-weight:600; font-size:11.5px; cursor:pointer">🎯 Set hunt goal</button>
+      <button id="rollbtn" title="new random block + number; goal re-aims" style="flex:1; padding:7px; border:none; border-radius:8px; background:#26303f; color:#8fd0ff; font-weight:600; font-size:11.5px; cursor:pointer">🎲 Randomize target</button>
+    </div>
     <div id="huntres" style="font-size:11px; min-height:14px; margin-bottom:2px"></div>
     <div id="usage" style="font-size:10px; color:#5f7188; font-family:ui-monospace,monospace"></div>
     <div style="display:flex; gap:6px; align-items:center; margin:2px 0 6px; font-size:11px; color:#8fa2b8">
@@ -1826,6 +1829,15 @@ const tg = (btn, panel) => document.getElementById(btn).onclick = () => {
   el.style.display = el.style.display === 'block' ? 'none' : 'block';
 };
 tg('tglogs', 'log'); tg('tgai', 'aiview');
+
+document.getElementById('rollbtn').onclick = ()=>{
+  assignSecret();   // new random block + number, no page reload, world untouched
+  if(isHuntGoal(document.getElementById('goal').value))
+    document.getElementById('goal').value = huntGoal(secretTruth.color);
+  document.getElementById('huntres').textContent =
+    `target re-rolled — now hunting the ${secretTruth.color} block`;
+  document.getElementById('huntres').style.color = '#8fd0ff';
+};
 
 // the directed hunt IS the default mission — set on load, no 🎯 click needed
 document.getElementById('goal').value = huntGoal(secretTruth.color);
