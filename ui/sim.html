@@ -956,6 +956,22 @@ function stepCheckLoop(){
   }
 }
 setInterval(stepCheckLoop, 400);
+// step-stall escape: a plan step that makes no progress against the WORLD
+// (nothing new seen, step unchanged for 75s) is unachievable from here —
+// replan with everything discovered since the old plan was written
+let stallStepIdx = -1, stallT = 0, stallSeen = 0;
+setInterval(()=>{
+  if(!autopilot || !plan.length || stepIdx >= plan.length) return;
+  if(stepIdx !== stallStepIdx){
+    stallStepIdx = stepIdx; stallT = performance.now(); stallSeen = mapSeenPct();
+    return;
+  }
+  if(performance.now() - stallT > 75000 && mapSeenPct() - stallSeen < 3){
+    tevent('step_stalled', `step ${stepIdx+1} made no progress for 75s (map_seen unchanged) — it may be unachievable from here; replanning with current knowledge`);
+    stallT = performance.now(); stallSeen = mapSeenPct();
+    makePlan();
+  }
+}, 5000);
 
 async function makePlan(){
   if(planBusy) return;
