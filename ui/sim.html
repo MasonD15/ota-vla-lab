@@ -626,25 +626,55 @@ function step(){
   // pivot toward the point, advance with proportional steer, arrive, next.
   if(autopilot && wpActive && driverStatus==='running'){
     const wp = wpList[wpIdx];
-    const dxw = wp.x - state.x, dyw = wp.y - state.y;
-    const distw = Math.hypot(dxw, dyw);
-    if(distw < 120){
+    const distw = Math.hypot(wp.x-state.x, wp.y-state.y);
+    lastDriveCmdT = now;
+    const nextWp = () => {
+      wpPhase = 'drive';
       if(++wpIdx >= wpList.length){
         wpActive = false; driverStatus = 'done'; stopMotors();
         tevent('waypoints_done', `plotted path complete (${wpList.length} points)`);
         document.getElementById('sgstat').textContent = 'driver: path complete ✓';
       }
-    } else {
-      let err = Math.atan2(dyw, dxw) - state.th;
-      err = Math.atan2(Math.sin(err), Math.cos(err));
-      if(Math.abs(err) > 0.44){ targetL = -0.3*Math.sign(err); targetR = 0.3*Math.sign(err); }
-      else {
-        const steer = Math.max(-0.2, Math.min(0.2, err*0.6));
-        targetL = 0.45 - steer; targetR = 0.45 + steer;
+    };
+    if(wpPhase === 'drive'){
+      if(distw < 120){
+        if(wp.faceLabel || wp.face_deg !== undefined){ wpPhase = 'aim'; }
+        else if(wp.look_s){ wpPhase = 'dwell'; wpPhaseT = now; stopMotors(); }
+        else nextWp();
+      } else {
+        let err = Math.atan2(wp.y-state.y, wp.x-state.x) - state.th;
+        err = Math.atan2(Math.sin(err), Math.cos(err));
+        if(Math.abs(err) > 0.44){ targetL = -0.3*Math.sign(err); targetR = 0.3*Math.sign(err); }
+        else {
+          const steer = Math.max(-0.2, Math.min(0.2, err*0.6));
+          targetL = 0.45 - steer; targetR = 0.45 + steer;
+        }
+        document.getElementById('sgstat').textContent =
+          `driver: path ${wpIdx+1}/${wpList.length}, ${Math.round(distw)}mm`;
       }
-      lastDriveCmdT = now;   // code IS the driver here; feed the watchdog
-      document.getElementById('sgstat').textContent =
-        `driver: following path — waypoint ${wpIdx+1}/${wpList.length}, ${Math.round(distw)}mm`;
+    } else if(wpPhase === 'aim'){
+      let want = null;
+      if(wp.face_deg !== undefined && wp.face_deg !== null) want = wp.face_deg*Math.PI/180;
+      else if(wp.faceLabel){
+        const t = landmarkMap.find(k => k.label.toLowerCase().includes(String(wp.faceLabel).toLowerCase()));
+        if(t) want = Math.atan2(t.y-state.y, t.x-state.x);
+      }
+      if(want === null){ wp.look_s ? (wpPhase='dwell', wpPhaseT=now, stopMotors()) : nextWp(); }
+      else {
+        let err = want - state.th; err = Math.atan2(Math.sin(err), Math.cos(err));
+        const ed = Math.abs(err*180/Math.PI);
+        if(ed < 1.5){ wp.look_s ? (wpPhase='dwell', wpPhaseT=now, stopMotors()) : nextWp(); }
+        else {
+          const sp = ed < 6 ? 0.05 : ed < 20 ? 0.12 : 0.3;
+          targetL = -sp*Math.sign(err); targetR = sp*Math.sign(err);
+        }
+        document.getElementById('sgstat').textContent = `driver: path ${wpIdx+1}/${wpList.length} — aiming`;
+      }
+    } else if(wpPhase === 'dwell'){
+      targetL = 0; targetR = 0;
+      const left = (wp.look_s||0) - (now-wpPhaseT)/1000;
+      document.getElementById('sgstat').textContent = `driver: path ${wpIdx+1}/${wpList.length} — looking (${left.toFixed(1)}s)`;
+      if(left <= 0) nextWp();
     }
   }
   // slew toward targets: full-scale swing takes ~0.8x the measured drive period
@@ -867,7 +897,7 @@ setInterval(checkDoneWhen, 150);
 let llmMemory = '';          // thinker's scratchpad
 let sgRepeat = 0, lastSubgoalText = '', lastThinkPose = {x:0, y:0};
 let lastScene = '';                 // thinker's dense frame inventory, fed forward
-let wpList = [], wpIdx = 0, wpActive = false;   // plotted path (mind's-eye waypoints)
+let wpList = [], wpIdx = 0, wpActive = false, wpPhase = 'drive', wpPhaseT = 0;   // plotted path
 let activeAction = null;                        // current motion primitive
 
 function ingestWaypoints(points){
@@ -877,19 +907,44 @@ function ingestWaypoints(points){
       const d = Math.hypot(wx-k.x, wy-k.y);
       if(d < 450 && d > 1){ wx = k.x + (wx-k.x)/d*450; wy = k.y + (wy-k.y)/d*450; }
     }
-    return {x: Math.max(-1100, Math.min(1100, wx)), y: Math.max(-1100, Math.min(1100, wy))};
+    return {x: Math.max(-1100, Math.min(1100, wx)), y: Math.max(-1100, Math.min(1100, wy)),
+            face_deg: w.face_deg, faceLabel: w.face, look_s: w.look_s};
   });
+  // densify (interpolants are plain; the original point keeps its look/face meta)
   wpList = [];
-  let px = state.x, py = state.y;
-  for(const w of clamped){
+  let px = state.x, py = state.y, segOf = [];
+  clamped.forEach((w, oi) => {
     const seg = Math.hypot(w.x-px, w.y-py);
     const n = Math.max(1, Math.round(seg/300));
-    for(let i=1; i<=n && wpList.length<24; i++)
-      wpList.push({x: px + (w.x-px)*i/n, y: py + (w.y-py)*i/n});
+    for(let i=1; i<=n && wpList.length<24; i++){
+      const pt = {x: px + (w.x-px)*i/n, y: py + (w.y-py)*i/n};
+      if(i === n){ pt.face_deg = w.face_deg; pt.faceLabel = w.faceLabel; pt.look_s = w.look_s; }
+      wpList.push(pt); segOf.push(oi);
+    }
     px = w.x; py = w.y;
+  });
+  // PRE-FLIGHT: march every hop against the OCCUPANCY map (its own knowledge only);
+  // a segment crossing mapped geometry is rejected with a precise report — the
+  // thinker replots. Unscanned space cannot be checked (contact-stop covers that).
+  let sx = state.x, sy = state.y;
+  for(let i=0; i<wpList.length; i++){
+    const w = wpList[i], hop = Math.hypot(w.x-sx, w.y-sy);
+    for(let t=40; t<hop; t+=60){
+      const qx = sx + (w.x-sx)*t/hop, qy = sy + (w.y-sy)*t/hop;
+      const gx = Math.round(qx/OCC_CELL), gy = Math.round(qy/OCC_CELL);
+      for(let ix=gx-2; ix<=gx+2; ix++) for(let iy=gy-2; iy<=gy+2; iy++){
+        const c = occupancy.get(ix+","+iy);
+        if(c && Math.hypot(c.x-qx, c.y-qy) < 170){
+          tevent('path_rejected', `path NOT started: segment to your point ${segOf[i]+1} crosses mapped geometry near (${Math.round(qx)},${Math.round(qy)}) — replot around it, wider`);
+          wpList = []; wpIdx = 0; wpActive = false;
+          return;
+        }
+      }
+    }
+    sx = w.x; sy = w.y;
   }
-  wpIdx = 0; wpActive = wpList.length > 0;
-  tevent('path_plotted', `${wpList.length} densified waypoints`);
+  wpIdx = 0; wpPhase = 'drive'; wpActive = wpList.length > 0;
+  if(wpActive) tevent('path_plotted', `${wpList.length} densified waypoints, pre-flight clear`);
 }
 
 function startAction(a){
@@ -938,7 +993,7 @@ function steerToward(hdg, speed){
 }
 
 function actionProgress(){
-  if(wpActive) return `follow_waypoints: point ${wpIdx+1}/${wpList.length}`;
+  if(wpActive) return `follow_waypoints: point ${wpIdx+1}/${wpList.length}${wpPhase!=='drive' ? ' ('+wpPhase+')' : ''}`;
   if(!activeAction) return driverStatus==='running' ? '(none)' : `last action ${driverStatus}`;
   const A = activeAction, deg = Math.abs(sgTurnAccum*180/Math.PI);
   if(A.name==='move') return `move: ${Math.round(sgDistAccum)}/${Math.abs(A.args.mm||0)}mm`;

@@ -1,5 +1,28 @@
 # Robotics Lab — Feature & Performance Notebook
 
+## 2026-09-03 — Trajectories 2.0: look-points + pre-flight validation (Mason)
+**Mason's three observations on plotted paths:** (1) trajectories get abandoned
+mid-flight; (2) it never stops to LOOK at a point — paths were pure locomotion,
+camera always facing travel direction; (3) a plotted path drove into a block
+(only endpoints were clearance-clamped, and only vs landmarks — segments could
+cut corners through known geometry).
+**Upgrades:**
+1. *Look-points* — waypoints accept face (aim at a landmark), face_deg (aim at a
+   heading), and look_s (0-6s dwell). Follower gains drive→aim→dwell phases; a
+   dwell = stationary frames for the thinker at exactly the spot the path chose.
+   Orbit arcs can now be "drive, stop, face the target, observe, continue" — a
+   trajectory is observation choreography, not just locomotion.
+2. *Pre-flight path validation* — every densified hop is marched against the
+   OCCUPANCY map before the rover moves; a segment passing within 170mm of mapped
+   geometry rejects the whole path with a precise report ("segment to your point 3
+   crosses mapped geometry near (620,-300) — replot wider"). Uses only the AI's
+   own map (randomization-safe); unscanned space can't be pre-checked (contact
+   stop still covers it). Plotting errors now cost a replot, not a collision.
+3. Path abandonment left as-is deliberately: free-running replacement is
+   opportunism; the progress reporting + rejection events give the thinker what
+   it needs to be disciplined about it.
+
+
 ## 2026-09-03 — Why doesn't it take notes? (Mason's question; elicitation not scripting)
 **Evidence: mark used 2x in 643 thinks across 68 sessions.** The ability existed;
 the habit never formed. Diagnosis (constraint: the behavior must come from the AI,
