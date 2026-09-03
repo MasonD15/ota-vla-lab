@@ -100,7 +100,7 @@ YOUR RECENT ACTIONS (oldest first):
 {history}
 
 The image is the rover camera's point of view (currently panned {cam_pan} degrees).
-ENVIRONMENT SCALE: the floor is a checkerboard of 200mm tiles — count tiles to estimate distance. Arena walls have striped faces with an ORANGE BAND along the top; if you see stripes/orange filling the frame you are close to a wall.
+ENVIRONMENT: {env_desc}. Use the floor pattern (~150-200mm per plank/tile) to estimate distances.
 LANDMARKS: telemetry "known_landmarks" lists objects you already labeled, with live distance/bearing from your current pose (bearing 0 = straight ahead, positive = left). If you see a NEW distinct object not on that list, label it via "landmarks" in your reply (max 3, only new objects, bearing relative to camera center).
 Decide motor powers, optionally re-aim the camera, and update your memory.
 Reply ONLY with JSON: {{"left": <-1..1>, "right": <-1..1>, "cam_pan": <-60..60 deg, optional>, "observe": "<what you see right now, <=15 words>", "assess": "<what it means for the current step/goal, <=15 words>", "memory": "<running plan + notes to your future self, max 60 words>", "say": "<the action decision, brief>", "landmarks": [{{"label": "<short name>", "bearing_deg": <-45..45>, "distance_mm": <estimate>}}] (optional)}}
@@ -125,7 +125,7 @@ Telemetry: {telemetry}
 Its memory: {memory}
 Landmarks already identified: {landmarks}
 
-ARENA FACTS: 4.8m square, checkerboard floor (200mm tiles), striped walls with an orange top band. The arena CONTENTS ARE UNKNOWN — some number of objects of unknown colors/shapes/positions; the rover discovers, names, and maps them itself. The rover has a FIXED forward camera (no pan — looking elsewhere means turning the rover; never write camera-pan steps), 3 forward ultrasonics, and a memory map that grows as it drives.
+ENVIRONMENT: {env_desc}. Beyond that, the CONTENTS ARE UNKNOWN — some number of objects of unknown colors/shapes/positions; the rover discovers, names, and maps them itself. The rover has a FIXED forward camera (no pan — looking elsewhere means turning the rover; never write camera-pan steps), 3 forward ultrasonics, and a memory map that grows as it drives.
 Break the mission into an EXHAUSTIVE ordered list of 3-8 concrete executable steps. The executor offers exactly these motions: scan, goto(landmark), follow_waypoints (plotted arcs/routes), move, turn — write steps that map cleanly onto them (e.g. 'plot and drive an arc around the target object to its far face'). Each step must be something a rover can do by driving/turning/looking, with an observable success condition. Cover: locating any named target (rotating/scanning until seen), approaching it, positioning (seeing a far face requires driving AROUND the object), verifying, and answering.
 Each step ALSO gets a machine-checkable "check" that code evaluates automatically (steps advance without judgment when possible):
 - {{"type": "landmark_known", "label": "<name substring>"}} — succeeds when a landmark with that label has been identified
@@ -140,6 +140,7 @@ def sim_plan(payload):
     if not key: return {"error": "No OpenAI API key — add yours in the Settings section (left panel)"}
     sensors = payload.get("sensors", {})
     prompt = PLAN_PROMPT.format(
+        env_desc=payload.get("env_desc") or "a walled area",
         goal=payload.get("goal") or "Explore.",
         telemetry=json.dumps(sensors)[:800],
         memory=(payload.get("memory") or "").strip() or "(none yet)",
@@ -351,6 +352,7 @@ def sim_think(payload):
         memory=(payload.get("memory") or "").strip() or "(empty)",
         recent_motion=recent_motion,
         timing=timing,
+        env_desc=payload.get("env_desc") or "a walled area",
         situation=payload.get("situation") or "(not assessed)",
         events=events,
         progress=progress,
@@ -549,12 +551,12 @@ def sim_drive_fast(payload):
 # ---------- session logging (JSONL per autopilot run, study-able later) ----------
 _sess_file, _sess_lock = None, threading.Lock()
 
-def session_start(goal, guards=None, secret=None, tab=None):
+def session_start(goal, guards=None, secret=None, tab=None, map_name=None):
     global _sess_file
     with _sess_lock:
         f = pdir("sessions") / (time.strftime("%Y%m%d-%H%M%S") + ".jsonl")
         f.write_text(json.dumps({"type": "session_start", "time": time.strftime("%Y-%m-%d %H:%M:%S"),
-                                 "goal": goal, "guards": guards, "secret": secret, "tab": tab}) + "\n")
+                                 "goal": goal, "guards": guards, "secret": secret, "tab": tab, "map": map_name}) + "\n")
         _sess_file = f
         return f.name
 
@@ -823,7 +825,7 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path == "/api/session/start":
             p = self._read()
             return self._json({"ok": True, "file": session_start(p.get("goal", ""), p.get("guards"),
-                                                                 p.get("secret"), p.get("tab"))})
+                                                                 p.get("secret"), p.get("tab"), p.get("map"))})
         if self.path == "/api/session/end":
             return self._json({"ok": True, "file": session_end(self._read().get("summary", {}))})
         return self._json({"error": "unknown endpoint"}, 404)

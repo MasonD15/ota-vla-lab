@@ -1,5 +1,26 @@
 # Robotics Lab — Feature & Performance Notebook
 
+## 2026-09-03 — Second map: house floor (rooms + furniture), swappable worlds
+**Built per Mason:** the world is now a swappable map system (🗺 dropdown, or
+?map=house). Map 2 = the floor of a house interior, deliberately unrecognizable
+from the arena: wood-plank flooring (~150mm planks as the new distance unit),
+beige walls with dark baseboards, THREE interior walls making four rooms joined
+by ~700mm doorways (NW↔SW↔SE↔NE loop), and non-target furniture obstructions —
+couch, table, bookshelf, chair, potted plant (cylinder+sphere, square hitbox),
+and a drivable rug (visual only). Hunt blocks unchanged in size, placed across
+rooms behind clutter — finding the target now requires room-to-room search.
+**Environment description is now DATA, not prompt text:** each map exports an
+env_desc string that flows into the thinker and planner prompts ({env_desc}), so
+prompts contain zero map-specific facts — fully consistent with the
+de-hardcoded-ontology policy, and adding map 3 is one function + one sentence.
+Sessions log which map they ran on. All discovery machinery (occupancy, radar,
+grid, pre-flight, mind map) is world-agnostic and worked unchanged.
+**What this tests that the arena couldn't:** broken sightlines (scan-from-spawn
+can no longer see most blocks), doorway navigation, obstruction disambiguation
+(furniture ≠ target), and whether its self-invented labels handle novel objects
+("couch"? "white wall"? its choice entirely).
+
+
 ## 2026-09-03 — 🏆 FIRST FULL WIN (session 083316; see NOTABLE_MOMENTS #2)
 Blue/4 hunt in the doubled arena: located, approached, orbited, verified, answered
 CORRECTLY in 114.6s / $0.023. Same-day fixes all pulled their weight: `continue`

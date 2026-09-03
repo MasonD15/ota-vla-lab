@@ -89,6 +89,13 @@
     <button id="huntbtn" style="width:100%; margin:4px 0; padding:7px; border:none; border-radius:8px; background:#26303f; color:#e6b422; font-weight:600; font-size:11.5px; cursor:pointer">🎯 Set goal: hidden-number hunt</button>
     <div id="huntres" style="font-size:11px; min-height:14px; margin-bottom:2px"></div>
     <div id="usage" style="font-size:10px; color:#5f7188; font-family:ui-monospace,monospace"></div>
+    <div style="display:flex; gap:6px; align-items:center; margin:2px 0 6px; font-size:11px; color:#8fa2b8">
+      <span>🗺 map:</span>
+      <select id="mapsel" style="flex:1; background:#0d1116; color:#dfe7f0; border:1px solid rgba(255,255,255,.12); border-radius:6px; padding:4px; font-size:11px">
+        <option value="arena">test arena (open, checkerboard)</option>
+        <option value="house">house floor (rooms + furniture)</option>
+      </select>
+    </div>
     <div style="display:flex; gap:6px; align-items:center; margin:2px 0 8px; font-size:11px; color:#8fa2b8">
       <span>🧠 thinker:</span>
       <select id="thinkmodel" style="flex:1; background:#0d1116; color:#dfe7f0; border:1px solid rgba(255,255,255,.12); border-radius:6px; padding:4px; font-size:11px">
@@ -210,62 +217,139 @@ sun.shadow.camera.top=1500; sun.shadow.camera.bottom=-1500; sun.shadow.camera.fa
 scene.add(sun);
 renderer.shadowMap.enabled = true;
 
-// floor 2.4m x 2.4m — 200mm checkerboard tiles (a measuring stick in every frame)
+// ================= swappable world maps =================
 const ARENA = 4800, TILE = 200;
-const fc = document.createElement('canvas'); fc.width = fc.height = 600;
-const fx = fc.getContext('2d');
-const tp = 600/(ARENA/TILE);
-for(let i=0;i<24;i++) for(let j=0;j<24;j++){
-  fx.fillStyle = (i+j)%2 ? '#39465a' : '#242d3a';
-  fx.fillRect(i*tp, j*tp, tp, tp);
-}
-const ftex = new THREE.CanvasTexture(fc);
-const floor = new THREE.Mesh(new THREE.PlaneGeometry(ARENA,ARENA),
-  new THREE.MeshStandardMaterial({map:ftex, roughness:.95}));
-floor.receiveShadow = true;
-scene.add(floor);
-
-// wall texture: vertical stripes + orange warning band on top (walls were a flat
-// grey blur in the POV — indistinguishable from empty space; see LAB_NOTES)
-const wc = document.createElement('canvas'); wc.width = 256; wc.height = 64;
-const wx = wc.getContext('2d');
-wx.fillStyle='#3d4a5e'; wx.fillRect(0,0,256,64);
-wx.fillStyle='#55688a'; wx.fillRect(0,0,64,64); wx.fillRect(128,0,64,64);
-wx.fillStyle='#d9832b'; wx.fillRect(0,0,256,10);
-const wtex = new THREE.CanvasTexture(wc);
-wtex.wrapS = THREE.RepeatWrapping; wtex.repeat.set(6,1);
-const wallMat = new THREE.MeshStandardMaterial({map:wtex, roughness:.8});
-
-// walls + obstacles (colored so the VLM can refer to them)
 const obstacles = [];
+let worldGroup = null, blockMeshes = [], envDesc = '', currentMap = 'arena';
+let secretTruth = null, secretSign = null;
+
 function addBox(x,y,w,d,h,color,mat){
   const m = new THREE.Mesh(new THREE.BoxGeometry(w,d,h),
     mat || new THREE.MeshStandardMaterial({color, roughness:.7}));
   m.position.set(x,y,h/2);
   m.castShadow = true; m.receiveShadow = true;
-  scene.add(m);
+  worldGroup.add(m);
   obstacles.push({mesh:m, x, y, hw:w/2, hd:d/2});
   return m;
 }
-const W=30;
-addBox(0,  ARENA/2, ARENA, W, 220, 0, wallMat); addBox(0, -ARENA/2, ARENA, W, 220, 0, wallMat);
-addBox( ARENA/2, 0, W, ARENA, 220, 0, wallMat); addBox(-ARENA/2, 0, W, ARENA, 220, 0, wallMat);
-// colored blocks — purer hues (previous muddy tones misread in the 320x240 POV jpeg)
-const BLOCKS = [
-  {name:'red',    c:0xe03030, s:[-1200,600,220,220,200]},
-  {name:'blue',   c:0x2f6fe0, s:[1000,-900,260,180,160]},
-  {name:'green',  c:0x2fb14c, s:[400,1100,180,260,240]},
-  {name:'yellow', c:0xe6b422, s:[-700,-1300,240,240,180]},
-  {name:'purple', c:0x9a4bdc, s:[1500,1000,200,200,220]},
-];
-let secretTruth = null;
-const blockMeshes = BLOCKS.map(b => ({...b, mesh: addBox(b.s[0],b.s[1],b.s[2],b.s[3],b.s[4], b.c)}));
+function makeTex(w, h, draw){
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  draw(c.getContext('2d'));
+  return new THREE.CanvasTexture(c);
+}
+function addFloor(tex){
+  const f = new THREE.Mesh(new THREE.PlaneGeometry(ARENA,ARENA),
+    new THREE.MeshStandardMaterial({map:tex, roughness:.95}));
+  f.receiveShadow = true; worldGroup.add(f);
+}
 
-// hidden-number hunt: one random block gets a number painted on the face turned
-// AWAY from the arena center — the rover must circle blocks to see it
-// digit is a separate sign plane mounted on the away-face — box UVs rotate/mirror
-// textures per-face (found in vision benchmarking); a plane gives exact orientation
-let secretSign = null;
+// ---------- map: test arena (checkerboard + striped walls) ----------
+function buildArena(){
+  envDesc = 'a 4.8m test arena: checkerboard floor (200mm tiles), striped outer walls with an ORANGE BAND along the top (stripes/orange filling the frame = close to a wall)';
+  addFloor(makeTex(600,600, g => {
+    const tp = 600/(ARENA/TILE);
+    for(let i=0;i<24;i++) for(let j=0;j<24;j++){
+      g.fillStyle = (i+j)%2 ? '#39465a' : '#242d3a'; g.fillRect(i*tp, j*tp, tp, tp);
+    }
+  }));
+  const wtex = makeTex(256,64, g => {
+    g.fillStyle='#3d4a5e'; g.fillRect(0,0,256,64);
+    g.fillStyle='#55688a'; g.fillRect(0,0,64,64); g.fillRect(128,0,64,64);
+    g.fillStyle='#d9832b'; g.fillRect(0,0,256,10);
+  });
+  wtex.wrapS = THREE.RepeatWrapping; wtex.repeat.set(12,1);
+  const wallMat = new THREE.MeshStandardMaterial({map:wtex, roughness:.8});
+  const W=30;
+  addBox(0,  ARENA/2, ARENA, W, 220, 0, wallMat); addBox(0, -ARENA/2, ARENA, W, 220, 0, wallMat);
+  addBox( ARENA/2, 0, W, ARENA, 220, 0, wallMat); addBox(-ARENA/2, 0, W, ARENA, 220, 0, wallMat);
+  buildBlocks([
+    {name:'red',    c:0xe03030, s:[-1200,600,220,220,200]},
+    {name:'blue',   c:0x2f6fe0, s:[1000,-900,260,180,160]},
+    {name:'green',  c:0x2fb14c, s:[400,1100,180,260,240]},
+    {name:'yellow', c:0xe6b422, s:[-700,-1300,240,240,180]},
+    {name:'purple', c:0x9a4bdc, s:[1500,1000,200,200,220]},
+  ]);
+}
+
+// ---------- map: house floor (rooms, doorways, furniture clutter) ----------
+function buildHouse(){
+  envDesc = 'the floor of a HOUSE interior (~4.8m span): wood plank flooring (planks ~150mm wide — count planks for distance), beige walls with dark baseboards, MULTIPLE ROOMS connected by open doorways, and household furniture as obstructions (couch, table, shelf, chair, potted plant, a rug). Sightlines are blocked by interior walls and furniture — expect to travel through doorways and look around obstacles to find things';
+  addFloor(makeTex(512,512, g => {
+    for(let r=0; r<32; r++){
+      const tone = 105 + (r*37)%28;
+      g.fillStyle = `rgb(${tone+30},${tone-8},${Math.round(tone*0.55)})`;
+      g.fillRect(0, r*16, 512, 16);
+      g.fillStyle = 'rgba(60,38,20,.55)'; g.fillRect(0, r*16, 512, 1);
+      g.fillStyle = 'rgba(60,38,20,.35)';
+      g.fillRect(((r*197)%512), r*16, 2, 16);   // plank end seams
+      g.fillStyle = 'rgba(255,235,200,.05)'; g.fillRect(0, r*16+6, 512, 2);
+    }
+  }));
+  const wallTex = makeTex(256,64, g => {
+    g.fillStyle='#cfc8bc'; g.fillRect(0,0,256,64);
+    g.fillStyle='#b9b2a5'; for(let i=0;i<8;i++) g.fillRect(i*32,0,1,64);
+    g.fillStyle='#4a3f35'; g.fillRect(0,52,256,12);   // baseboard
+  });
+  wallTex.wrapS = THREE.RepeatWrapping; wallTex.repeat.set(10,1);
+  const wallMat = new THREE.MeshStandardMaterial({map:wallTex, roughness:.9});
+  const W=30;
+  addBox(0,  ARENA/2, ARENA, W, 600, 0, wallMat); addBox(0, -ARENA/2, ARENA, W, 600, 0, wallMat);
+  addBox( ARENA/2, 0, W, ARENA, 600, 0, wallMat); addBox(-ARENA/2, 0, W, ARENA, 600, 0, wallMat);
+  // interior walls with doorways (rooms: NW / SW / SE+NE loop)
+  addBox(0, -1800, 90, 1200, 500, 0, wallMat);   // W1 lower (door y -1200..-500)
+  addBox(0,  -100, 90,  800, 500, 0, wallMat);   // W1 upper
+  addBox(-2000, 300, 800, 90, 500, 0, wallMat);  // W2 west (door x -1600..-900)
+  addBox(-450,  300, 900, 90, 500, 0, wallMat);  // W2 east
+  addBox(450,  -300, 900, 90, 500, 0, wallMat);  // W3 west (door x 900..1600)
+  addBox(2000, -300, 800, 90, 500, 0, wallMat);  // W3 east
+  // furniture (obstructions — deliberately NOT the hunt objects)
+  addBox( 900, -1400, 1100, 420, 380, 0x5a6b7a); // couch
+  addBox(-1200, -1000, 900, 600, 360, 0x8a6a45); // table
+  addBox( 1800, 2150, 1000, 350, 900, 0x5c4630); // bookshelf vs north wall
+  addBox( -650, -1550, 360, 360, 430, 0x74584a); // chair
+  // potted plant: cylinder visuals, square hitbox
+  const pot = new THREE.Mesh(new THREE.CylinderGeometry(140,110,260,20),
+    new THREE.MeshStandardMaterial({color:0xa8552f, roughness:.8}));
+  pot.rotation.x = Math.PI/2; pot.position.set(400,-800,130); pot.castShadow=true; worldGroup.add(pot);
+  const bush = new THREE.Mesh(new THREE.SphereGeometry(190,16,12),
+    new THREE.MeshStandardMaterial({color:0x2e6b2e, roughness:.9}));
+  bush.position.set(400,-800,420); bush.castShadow=true; worldGroup.add(bush);
+  obstacles.push({x:400, y:-800, hw:160, hd:160});
+  // rug (visual only — drivable)
+  const rug = new THREE.Mesh(new THREE.PlaneGeometry(1400,900),
+    new THREE.MeshStandardMaterial({map: makeTex(280,180, g => {
+      g.fillStyle='#7a3b3b'; g.fillRect(0,0,280,180);
+      g.strokeStyle='#c9a15a'; g.lineWidth=6; g.strokeRect(10,10,260,160);
+      g.fillStyle='#a05545';
+      for(let i=0;i<5;i++) for(let j=0;j<3;j++){
+        g.save(); g.translate(50+i*45, 50+j*45); g.rotate(Math.PI/4); g.fillRect(-12,-12,24,24); g.restore();
+      }
+    }), roughness:.95}));
+  rug.position.set(-1200,1200,1.5); rug.receiveShadow = true; worldGroup.add(rug);
+  buildBlocks([
+    {name:'red',    c:0xe03030, s:[-1500,1400,220,220,200]},  // NW room, near rug
+    {name:'green',  c:0x2fb14c, s:[1400,1500,180,260,240]},   // NE, by the shelf
+    {name:'blue',   c:0x2f6fe0, s:[1600,-1600,260,180,160]},  // SE, behind the couch
+    {name:'yellow', c:0xe6b422, s:[-1600,-1900,240,240,180]}, // SW, behind the table
+    {name:'purple', c:0x9a4bdc, s:[700,150,200,200,220]},     // NE, mid-house
+  ]);
+}
+
+function buildBlocks(defs){
+  blockMeshes = defs.map(b => ({...b, mesh: addBox(b.s[0],b.s[1],b.s[2],b.s[3],b.s[4], b.c)}));
+}
+
+function buildWorld(name){
+  currentMap = name;
+  if(secretSign){ scene.remove(secretSign); secretSign = null; }
+  if(worldGroup) scene.remove(worldGroup);
+  worldGroup = new THREE.Group();
+  obstacles.length = 0; blockMeshes = [];
+  (name === 'house' ? buildHouse : buildArena)();
+  scene.add(worldGroup);
+  assignSecret();
+}
+
 function assignSecret(){
   if(secretSign){ scene.remove(secretSign); secretSign = null; }
   const b = blockMeshes[Math.floor(Math.random()*blockMeshes.length)];
@@ -290,7 +374,7 @@ function assignSecret(){
   secretTruth = {color: b.name, number: n};
   console.log('secret (shh):', secretTruth);
 }
-assignSecret();
+buildWorld(new URLSearchParams(location.search).get('map') === 'house' ? 'house' : 'arena');
 
 // ================= the car =================
 const car = new THREE.Group();
@@ -845,7 +929,7 @@ async function makePlan(){
       ? document.getElementById('povcanvas').toDataURL('image/jpeg', .7) : null;
     const r = await (await fetch('/api/sim/plan', {method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({tab: TAB_ID, goal: document.getElementById('goal').value,
+      body: JSON.stringify({tab: TAB_ID, goal: document.getElementById('goal').value, env_desc: envDesc,
         image, sensors: readSensors(), memory: llmMemory})})).json();
     if(r.plan && r.plan.length){ plan = r.plan; stepIdx = 0;
       totIn += r.usage.in; totOut += r.usage.out; totCost += r.cost_usd; }
@@ -1414,7 +1498,7 @@ document.getElementById('auto').onclick = async e=>{
     fetch('/api/session/start', {method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({tab: TAB_ID, goal: document.getElementById('goal').value,
         guards: document.getElementById('guards').checked,
-        secret: secretTruth})});
+        map: currentMap, secret: secretTruth})});
   } else {
     stopMotors();
     fetch('/api/session/end', {method:'POST', headers:{'Content-Type':'application/json'},
@@ -1628,6 +1712,11 @@ document.getElementById('savekey').onclick = async ()=>{
   refreshKeyStat();
 };
 refreshKeyStat();
+document.getElementById('mapsel').value = currentMap;
+document.getElementById('mapsel').onchange = e => {
+  buildWorld(e.target.value);
+  document.getElementById('reset').click();
+};
 
 // top tabs: full logs + machine-readable map, hidden unless opened
 const tg = (btn, panel) => document.getElementById(btn).onclick = () => {
