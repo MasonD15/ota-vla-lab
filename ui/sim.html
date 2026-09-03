@@ -221,6 +221,7 @@ renderer.shadowMap.enabled = true;
 const ARENA = 4800, TILE = 200;
 const obstacles = [];
 let worldGroup = null, blockMeshes = [], envDesc = '', currentMap = 'arena';
+let mapSpawn = {x:0, y:0};
 let secretTruth = null, secretSign = null;
 
 function addBox(x,y,w,d,h,color,mat){
@@ -245,6 +246,7 @@ function addFloor(tex){
 
 // ---------- map: test arena (checkerboard + striped walls) ----------
 function buildArena(){
+  mapSpawn = {x:0, y:0};
   envDesc = 'a 4.8m test arena: checkerboard floor (200mm tiles), striped outer walls with an ORANGE BAND along the top (stripes/orange filling the frame = close to a wall)';
   addFloor(makeTex(600,600, g => {
     const tp = 600/(ARENA/TILE);
@@ -273,6 +275,7 @@ function buildArena(){
 
 // ---------- map: house floor (rooms, doorways, furniture clutter) ----------
 function buildHouse(){
+  mapSpawn = {x:-1200, y:-400};   // open floor in the SW room, clear of walls/furniture
   envDesc = 'the floor of a HOUSE interior (~4.8m span): wood plank flooring (planks ~150mm wide — count planks for distance), beige walls with dark baseboards, MULTIPLE ROOMS connected by open doorways, and household furniture as obstructions (couch, table, shelf, chair, potted plant, a rug). Sightlines are blocked by interior walls and furniture — expect to travel through doorways and look around obstacles to find things';
   addFloor(makeTex(512,512, g => {
     for(let r=0; r<32; r++){
@@ -416,7 +419,7 @@ povRenderer.setSize(320,240,false);
 povRenderer.shadowMap.enabled = true;   // the LLM needs the depth cues too
 
 // ================= physics-lite =================
-const state = { x:0, y:0, th:0, l:0, r:0 };
+const state = { x:mapSpawn.x, y:mapSpawn.y, th:0, l:0, r:0 };
 // tab identity: multiple open sim tabs write into the SAME server session log
 // (session 211024: a stale tab's explore-plan mixed into a yellow-hunt session)
 const TAB_ID = Math.random().toString(36).slice(2,7);
@@ -1510,7 +1513,7 @@ document.getElementById('auto').onclick = async e=>{
   }
 };
 document.getElementById('reset').onclick = ()=>{
-  state.x=0; state.y=0; state.th=0; stopMotors();
+  state.x=mapSpawn.x; state.y=mapSpawn.y; state.th=0; stopMotors();
   camPan=0; llmMemory=''; subgoalHistory.length=0;
   currentSubgoal=''; doneWhen=null; driverStatus='(starting)'; lastThinkT=0;
   sgTurnAccum=0; sgDistAccum=0; recoilUntil=0;
@@ -1545,7 +1548,7 @@ fetch('/api/project').then(r=>r.json()).then(p=>{
 
 // ================= main loop =================
 chase.position.set(-900,-1300,1100);
-controls.target.set(0,0,50);
+controls.target.set(mapSpawn.x, mapSpawn.y, 50);
 // live sensors panel (throttled)
 setInterval(()=>{
   document.getElementById('sensors').textContent = JSON.stringify(readSensors(), null, 1);
