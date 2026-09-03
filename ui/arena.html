@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Robotics Lab · Strategy Arena</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0d1015; color:#c9d3e0; font-family:-apple-system,BlinkMacSystemFont,sans-serif; padding:16px; }
+  h1 { font-size:15px; } .sub { font-size:11px; color:#5f7188; margin:2px 0 12px; }
+  a { color:#3b82f6; text-decoration:none; }
+  #bar { display:flex; gap:8px; align-items:center; margin-bottom:12px; }
+  button { padding:8px 14px; border:none; border-radius:8px; background:#3b82f6; color:#fff;
+    font-weight:700; font-size:12px; cursor:pointer; }
+  button.stop { background:#dc2626; }
+  #totals { margin-left:auto; font-size:11px; color:#8fa2b8; font-family:ui-monospace,monospace; text-align:right; }
+  #grid { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; }
+  .cell { background:#141922; border:1px solid rgba(255,255,255,.07); border-radius:10px; padding:8px; }
+  .cell h3 { font-size:10.5px; color:#e7edf5; margin-bottom:4px; white-space:nowrap; overflow:hidden; }
+  .cell canvas { width:100%; border-radius:6px; display:block; background:#0d1116; }
+  .stat { font-size:9.5px; color:#6b7a8d; font-family:ui-monospace,monospace; margin-top:4px; line-height:1.5; }
+  .sg { font-size:9.5px; color:#8fa2b8; height:24px; overflow:hidden; line-height:1.2; margin-top:2px; }
+  .status { font-size:10px; font-weight:700; margin-top:2px; }
+</style>
+</head>
+<body>
+<h1>Strategy Arena — 10 chambers, 10 search methods</h1>
+<div class="sub">directed hunt: goal names the target block (random each chamber) · guards ON · thinker gpt-4.1-mini (vision champ) · <a href="/sim.html">← back to sim</a></div>
+<div id="bar">
+  <button id="startall">▶ Run all chambers</button>
+  <button id="stopall" class="stop">■ Stop all</button>
+  <div id="totals">—</div>
+</div>
+<div id="grid"></div>
+
+<script src="lib/three.min.js"></script>
+<script>
+const STRATEGIES = [
+  {name:'Perimeter-first',  text:'Follow the arena walls all the way around the perimeter first, then work inward. Circle each block you meet.'},
+  {name:'Spiral-out',       text:'Move in an expanding spiral from the center outward, circling any block you encounter.'},
+  {name:'Block-orbit',      text:'Go directly to the nearest block and orbit it 360 degrees to see every face, then move to the next nearest unvisited block.'},
+  {name:'Frontier',         text:'Always head toward the most UNSCANNED radar sector (3000 = unscanned). Expand the known map aggressively; circle blocks found.'},
+  {name:'Grid-sweep',       text:'Sweep the arena in parallel lanes like mowing a lawn (advance, shift sideways, come back). Inspect blocks as lanes reach them.'},
+  {name:'Random-bounce',    text:'Pick a random direction, advance as far as the budget allows, then pick a new random direction. Circle blocks when close.'},
+  {name:'Scan-then-move',   text:'At each stop, pivot a full 360 degrees to scan, then advance toward the most open direction. Repeat. Circle blocks to inspect.'},
+  {name:'Camera-pan-heavy', text:'Use cam_pan aggressively: at every waypoint pan the camera -60 and +60 before deciding. Move less, look more.'},
+  {name:'Label-then-visit', text:'First pass: label every block from a distance. Second pass: visit each labeled block in order and orbit it fully.'},
+  {name:'Greedy-open',      text:'Always advance into the largest clearance available. When a block is within 600mm, orbit it fully before continuing.'},
+];
+const huntGoal = color => `Find the number painted on the ${color.toUpperCase()} block. It is on the face turned AWAY from the arena center, so you must go around behind the ${color} block to see it. Navigate there directly and investigate. When you can actually READ the number in the camera image, reply with "answer": {"number": <n>, "color": "${color}"}. Never guess.`;
+const BLOCKS = [
+  {name:'red',    c:0xe03030, s:[-600,300,220,220,200]},
+  {name:'blue',   c:0x2f6fe0, s:[500,-450,260,180,160]},
+  {name:'green',  c:0x2fb14c, s:[200,550,180,260,240]},
+  {name:'yellow', c:0xe6b422, s:[-350,-650,240,240,180]},
+  {name:'purple', c:0x9a4bdc, s:[750,500,200,200,220]},
+];
+const ARENA=2400, W=30, MAXV=450, BASE=160, RADIUS=110, STANDOFF=120;
+
+// ---------- shared POV renderer (one WebGL context for all chambers) ----------
+const povCanvas = document.createElement('canvas'); povCanvas.width=256; povCanvas.height=192;
+const renderer = new THREE.WebGLRenderer({canvas:povCanvas, antialias:false, preserveDrawingBuffer:true});
+renderer.setSize(256,192,false);
+
+// checker floor texture (shared)
+const fc=document.createElement('canvas'); fc.width=fc.height=600;
+const fx=fc.getContext('2d'); const tp=600/12;
+for(let i=0;i<12;i++)for(let j=0;j<12;j++){ fx.fillStyle=(i+j)%2?'#39465a':'#242d3a'; fx.fillRect(i*tp,j*tp,tp,tp); }
+const floorTex = new THREE.CanvasTexture(fc);
+const wc=document.createElement('canvas'); wc.width=256; wc.height=64;
+const wx=wc.getContext('2d'); wx.fillStyle='#3d4a5e'; wx.fillRect(0,0,256,64);
+wx.fillStyle='#55688a'; wx.fillRect(0,0,64,64); wx.fillRect(128,0,64,64);
+wx.fillStyle='#d9832b'; wx.fillRect(0,0,256,10);
+const wallTex=new THREE.CanvasTexture(wc); wallTex.wrapS=THREE.RepeatWrapping; wallTex.repeat.set(6,1);
+
+// ---------- global LLM concurrency limiter (protects rate limits) ----------
+let inflightLLM = 0;
+async function llm(url, body){
+  while(inflightLLM >= 3) await new Promise(r=>setTimeout(r,120));
+  inflightLLM++;
+  try{
+    return await (await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(body)})).json();
+  } finally { inflightLLM--; }
+}
+
+// ---------- chamber ----------
+class Chamber {
+  constructor(i, strategy){
+    this.i=i; this.strategy=strategy;
+    this.obstacles=[]; this.occ=new Map(); this.trail=[];
+    this.state={x:0,y:0,th:0,l:0,r:0};
+    this.sg=''; this.dw=null; this.status='idle'; this.dstat='(starting)';
+    this.mem=''; this.hist=[]; this.turnAcc=0; this.distAcc=0; this.sgT=0;
+    this.tin=0; this.tout=0; this.cost=0; this.thinks=0; this.drives=0;
+    this.cols=0; this.colliding=false; this.wrong=0; this.startT=0; this.result='';
+    this.lastDriveT=0; this.lastThinkT=0; this.busyT=false; this.busyD=false;
+    // scene
+    this.scene=new THREE.Scene(); this.scene.background=new THREE.Color(0x11151c);
+    this.scene.add(new THREE.AmbientLight(0xffffff,.8));
+    const sun=new THREE.DirectionalLight(0xffffff,.7); sun.position.set(500,-400,800); this.scene.add(sun);
+    const floor=new THREE.Mesh(new THREE.PlaneGeometry(ARENA,ARENA),
+      new THREE.MeshStandardMaterial({map:floorTex,roughness:.95}));
+    this.scene.add(floor);
+    const wallMat=new THREE.MeshStandardMaterial({map:wallTex,roughness:.8});
+    this.addBox(0, ARENA/2, ARENA, W, 220, 0, wallMat); this.addBox(0,-ARENA/2, ARENA, W, 220, 0, wallMat);
+    this.addBox( ARENA/2,0, W, ARENA, 220, 0, wallMat); this.addBox(-ARENA/2,0, W, ARENA, 220, 0, wallMat);
+    this.blocks = BLOCKS.map(b=>({...b, mesh:this.addBox(b.s[0],b.s[1],b.s[2],b.s[3],b.s[4],b.c)}));
+    this.assignSecret();
+    this.pov=new THREE.PerspectiveCamera(70,256/192,5,5000); this.pov.up.set(0,0,1);
+    this.scene.add(this.pov);
+  }
+  addBox(x,y,w,d,h,color,mat){
+    const m=new THREE.Mesh(new THREE.BoxGeometry(w,d,h),
+      mat||new THREE.MeshStandardMaterial({color,roughness:.7}));
+    m.position.set(x,y,h/2); this.scene.add(m);
+    this.obstacles.push({x,y,hw:w/2,hd:d/2});
+    return m;
+  }
+  assignSecret(){
+    if(this.sign){ this.scene.remove(this.sign); this.sign=null; }
+    const b=this.blocks[Math.floor(Math.random()*5)];
+    const n=1+Math.floor(Math.random()*9);
+    const cnv=document.createElement('canvas'); cnv.width=cnv.height=256;
+    const c2=cnv.getContext('2d');
+    c2.fillStyle='#'+b.c.toString(16).padStart(6,'0'); c2.fillRect(0,0,256,256);
+    c2.fillStyle='#fff'; c2.font='bold 190px -apple-system'; c2.textAlign='center'; c2.textBaseline='middle';
+    c2.fillText(String(n),128,140);
+    const ax=Math.abs(b.s[0])>=Math.abs(b.s[1]);
+    const nx=ax?(b.s[0]>0?1:-1):0, ny=ax?0:(b.s[1]>0?1:-1);
+    const px=b.s[0]+nx*(b.s[2]/2+2), py=b.s[1]+ny*(b.s[3]/2+2), pz=b.s[4]/2;
+    const size=Math.min(ax?b.s[3]:b.s[2], b.s[4])*0.8;
+    this.sign=new THREE.Mesh(new THREE.PlaneGeometry(size,size),
+      new THREE.MeshStandardMaterial({map:new THREE.CanvasTexture(cnv),roughness:.7}));
+    this.sign.position.set(px,py,pz); this.sign.up.set(0,0,1); this.sign.lookAt(px+nx,py+ny,pz);
+    this.scene.add(this.sign);
+    this.secret={color:b.name, number:n};
+  }
+  ray(off){
+    const a=this.state.th+off, dx=Math.cos(a), dy=Math.sin(a);
+    let best=3000;
+    for(const o of this.obstacles)
+      for(let t=0;t<3000;t+=20){
+        const px=this.state.x+dx*t, py=this.state.y+dy*t;
+        if(Math.abs(px-o.x)<o.hw && Math.abs(py-o.y)<o.hd){ best=Math.min(best,t); break; }
+      }
+    return Math.round(best);
+  }
+  collides(nx,ny,m=0){
+    for(const o of this.obstacles)
+      if(Math.abs(nx-o.x)<o.hw+RADIUS+m && Math.abs(ny-o.y)<o.hd+RADIUS+m) return true;
+    return false;
+  }
+  occAdd(wx,wy){
+    const k=Math.round(wx/60)+','+Math.round(wy/60);
+    if(!this.occ.has(k) && this.occ.size<3000) this.occ.set(k,{x:Math.round(wx/60)*60,y:Math.round(wy/60)*60});
+  }
+  radar(){
+    const names=['ahead','ahead_left','left','rear_left','rear','rear_right','right','ahead_right'];
+    const sect=Array(8).fill(3000);
+    for(const c of this.occ.values()){
+      const dx=c.x-this.state.x, dy=c.y-this.state.y, dist=Math.hypot(dx,dy);
+      let rel=Math.atan2(dy,dx)-this.state.th; rel=Math.atan2(Math.sin(rel),Math.cos(rel));
+      const idx=((Math.round(rel/(Math.PI/4))%8)+8)%8;
+      if(dist<sect[idx]) sect[idx]=dist;
+    }
+    const out={}; names.forEach((n,i)=>out[n]=Math.round(sect[i])); return out;
+  }
+  sensors(){
+    const uf=this.ray(0), ul=this.ray(Math.PI/6), ur=this.ray(-Math.PI/6);
+    const rad=this.radar();
+    return {ultrasonic_front_mm:uf, ultrasonic_left30_mm:ul, ultrasonic_right30_mm:ur,
+      forward_clearance_mm:Math.min(uf,ul,ur),
+      advance_budget_mm:Math.max(0,Math.min(uf,ul,ur)-150),
+      reverse_budget_mm:Math.max(0,(rad.rear||3000)-150),
+      heading_deg:Math.round(((this.state.th*180/Math.PI)%360+360)%360),
+      speed_mm_s:0, motor_left_power:this.state.l, motor_right_power:this.state.r,
+      cam_pan_deg:0, battery_v:8.2, colliding:this.colliding, stuck_s:0,
+      collisions_this_session:this.cols, speed_governor_active:false,
+      rear_memory_mm:rad.rear||3000, map_radar:rad, map_cells_scanned:this.occ.size,
+      known_landmarks:[]};
+  }
+  step(dt){
+    if(this.status!=='running') { this.state.l=0; this.state.r=0; }
+    if(performance.now()-this.lastDriveT>3500){ this.state.l=0; this.state.r=0; }  // watchdog
+    const v=(this.state.l+this.state.r)/2*MAXV;
+    const w=Math.max(-1.6,Math.min(1.6,(this.state.r-this.state.l)/BASE*MAXV));
+    const d=this.ray(0), ds=Math.min(this.ray(Math.PI/6),this.ray(-Math.PI/6));
+    let vv=v;
+    if(v>0 && d<400) vv=v*Math.max(.25,(d-80)/320);            // governor (guards ON)
+    if(Math.min(d,ds)<140 && v>0) vv=0;                        // ray halt
+    const nx=this.state.x+Math.cos(this.state.th)*vv*dt, ny=this.state.y+Math.sin(this.state.th)*vv*dt;
+    if(Math.abs(vv)>1 && this.collides(nx,ny,STANDOFF) && !this.collides(this.state.x,this.state.y,STANDOFF)){
+      if(this.dstat==='running'){ this.dstat='blocked'; this.state.l=0; this.state.r=0; }
+    } else if(!this.collides(nx,ny)){ this.state.x=nx; this.state.y=ny; this.colliding=false; }
+    else { if(!this.colliding){ this.cols++; } this.colliding=true; }
+    this.th0=this.state.th; this.state.th+=w*dt;
+    this.turnAcc+=w*dt; this.distAcc+=Math.abs(vv)*dt;
+    if(!this.trail.length || Math.hypot(this.state.x-this.trail[this.trail.length-1][0],
+        this.state.y-this.trail[this.trail.length-1][1])>60){
+      this.trail.push([this.state.x,this.state.y]); if(this.trail.length>400) this.trail.shift();
+    }
+    // sonar scan into occupancy (throttled by frame cadence — fine)
+    for(const off of [0,Math.PI/6,-Math.PI/6]){
+      const dd=this.ray(off);
+      if(dd<2900){ const a=this.state.th+off;
+        this.occAdd(this.state.x+Math.cos(a)*dd, this.state.y+Math.sin(a)*dd); }
+    }
+    this.checkDone();
+  }
+  checkDone(){
+    if(this.status!=='running'||!this.dw||this.dstat!=='running') return;
+    const f=this.dw.field; let val;
+    if(f==='turned_deg') val=Math.abs(this.turnAcc*180/Math.PI);
+    else if(f==='advanced_mm') val=this.distAcc;
+    else if(f==='elapsed_s') val=(performance.now()-this.sgT)/1000;
+    else val=this.sensors()[f];
+    if(val===undefined) return;
+    const met=this.dw.op==='gt'?val>this.dw.value:val<this.dw.value;
+    const prog=f==='turned_deg'||f==='advanced_mm';
+    if(met && (prog || performance.now()-this.sgT>=1000)){
+      this.dstat='done'; this.state.l=0; this.state.r=0;
+    }
+  }
+  povShot(){
+    this.pov.position.set(this.state.x+Math.cos(this.state.th)*85,
+      this.state.y+Math.sin(this.state.th)*85, 150);
+    this.pov.lookAt(this.state.x+Math.cos(this.state.th)*685,
+      this.state.y+Math.sin(this.state.th)*685, 80);
+    renderer.render(this.scene,this.pov);
+    return povCanvas.toDataURL('image/jpeg',.65);
+  }
+  async think(){
+    if(this.status!=='running'||this.busyT) return;
+    if(performance.now()-this.lastThinkT<6000) return;
+    this.busyT=true;
+    try{
+      const r=await llm('/api/sim/think',{image:this.povShot(), model:'gpt-4.1-mini', guards:true,
+        strategy:`[${this.strategy.name}] ${this.strategy.text}`,
+        sensors:this.sensors(), memory:this.mem, subgoal:this.sg, driver_status:this.dstat,
+        history:this.hist.slice(-4), situation:'(arena mode)', events:[],
+        progress:{turned_deg:Math.round(Math.abs(this.turnAcc*180/Math.PI)),advanced_mm:Math.round(this.distAcc)},
+        recent_motion:{rotated_deg_15s:0,advanced_mm_15s:0},
+        timing:{think_period_s:6.5,think_latency_s:1.5,drive_period_s:2},
+        goal:huntGoal(this.secret.color)});
+      if(!r.error){
+        this.thinks++; this.tin+=r.usage.in; this.tout+=r.usage.out; this.cost+=r.cost_usd;
+        if(this.sg) this.hist.push({subgoal:this.sg,outcome:this.dstat,s_ago:0});
+        if(this.hist.length>4) this.hist.shift();
+        const same = r.subgoal===this.sg && JSON.stringify(r.done_when)===JSON.stringify(this.dw) && this.dstat==='running';
+        this.sg=r.subgoal; this.dw=r.done_when&&r.done_when.field?r.done_when:null;
+        this.dstat='running';
+        if(!same){ this.turnAcc=0; this.distAcc=0; this.sgT=performance.now(); }
+        if(r.memory) this.mem=r.memory;
+        if(r.answer){
+          const ok=String(r.answer.number)===String(this.secret.number) &&
+            String(r.answer.color||'').toLowerCase().includes(this.secret.color);
+          if(ok){ this.status='found';
+            this.result=`✓ ${r.answer.number} on ${r.answer.color} in ${((performance.now()-this.startT)/1000).toFixed(0)}s`; }
+          else { this.wrong++; }
+        }
+        this.lastThinkT=performance.now();
+      }
+    }catch(e){}
+    this.busyT=false;
+  }
+  async drive(){
+    if(this.status!=='running'||this.busyD||!this.sg||this.dstat!=='running') return;
+    this.busyD=true;
+    try{
+      const r=await llm('/api/sim/drivefast',{sensors:this.sensors(), guards:true,
+        subgoal:this.sg, done_when:this.dw?`${this.dw.field} ${this.dw.op==='gt'?'>':'<'} ${this.dw.value}`:'', events:[]});
+      if(!r.error){
+        this.drives++; this.tin+=r.usage.in; this.tout+=r.usage.out; this.cost+=r.cost_usd;
+        if(this.status==='running'){
+          this.state.l=r.left; this.state.r=r.right; this.lastDriveT=performance.now();
+          if(r.done||r.blocked){ this.dstat=r.done?'done':'blocked'; this.state.l=0; this.state.r=0; }
+        }
+      }
+    }catch(e){}
+    this.busyD=false;
+  }
+  start(){ this.status='running'; this.dstat='(starting)'; this.sg=''; this.dw=null;
+    this.mem=''; this.hist=[]; this.state={x:0,y:0,th:Math.random()*6.28,l:0,r:0};
+    this.occ.clear(); this.trail.length=0; this.cols=0; this.wrong=0;
+    this.assignSecret(); this.startT=performance.now(); this.lastThinkT=0; this.result=''; }
+  stop(){ if(this.status==='running') this.status='stopped'; this.state.l=0; this.state.r=0; }
+}
+
+// ---------- build UI ----------
+const grid=document.getElementById('grid');
+const chambers=STRATEGIES.map((s,i)=>{
+  const cell=document.createElement('div'); cell.className='cell';
+  cell.innerHTML=`<h3>${i+1}. ${s.name}</h3><canvas width="200" height="150"></canvas>
+    <div class="sg" id="sg${i}">–</div>
+    <div class="stat" id="st${i}">idle</div>
+    <div class="status" id="rs${i}"></div>`;
+  grid.appendChild(cell);
+  const ch=new Chamber(i,s);
+  ch.mini=cell.querySelector('canvas').getContext('2d');
+  return ch;
+});
+
+// physics: all chambers at 15Hz
+let lastT=performance.now();
+setInterval(()=>{
+  const now=performance.now(), dt=Math.min((now-lastT)/1000,.08); lastT=now;
+  chambers.forEach(c=>{ if(c.status==='running') c.step(dt); });
+},66);
+// staggered LLM loops
+chambers.forEach((c,i)=>{
+  setTimeout(()=>{ setInterval(()=>c.think(),1200); }, i*600);
+  setTimeout(()=>{ setInterval(()=>c.drive(),2100); }, 300+i*200);
+});
+
+// minis + scoreboard at 4Hz
+function drawMini(c){
+  const g=c.mini, S=200, H=150, sc=Math.min(S,H)*0.9/ARENA, cx=S/2, cy=H/2;
+  const X=x=>cx+x*sc, Y=y=>cy-y*sc;
+  g.fillStyle='#0d1116'; g.fillRect(0,0,S,H);
+  g.strokeStyle='#2a3340'; g.strokeRect(X(-1200),Y(1200),2400*sc,2400*sc);
+  for(const b of c.blocks){
+    g.fillStyle='#'+b.c.toString(16).padStart(6,'0');
+    g.fillRect(X(b.s[0]-b.s[2]/2),Y(b.s[1]+b.s[3]/2),b.s[2]*sc,b.s[3]*sc);
+  }
+  g.strokeStyle='rgba(59,130,246,.6)'; g.beginPath();
+  c.trail.forEach((p,i)=>i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1]))); g.stroke();
+  g.save(); g.translate(X(c.state.x),Y(c.state.y)); g.rotate(-c.state.th);
+  g.fillStyle=c.status==='found'?'#4ade80':c.colliding?'#f87171':'#e7edf5';
+  g.beginPath(); g.moveTo(6,0); g.lineTo(-4,4); g.lineTo(-4,-4); g.closePath(); g.fill(); g.restore();
+}
+setInterval(()=>{
+  let tin=0,tout=0,cost=0;
+  chambers.forEach((c,i)=>{
+    drawMini(c);
+    tin+=c.tin; tout+=c.tout; cost+=c.cost;
+    document.getElementById('sg'+i).textContent=c.sg||'–';
+    document.getElementById('st'+i).textContent=
+      `${c.thinks}🧠 ${c.drives}⚙ · ${((c.tin+c.tout)/1000).toFixed(1)}k tok · $${c.cost.toFixed(4)} · ${c.cols} col · ${c.wrong} wrong`;
+    const rs=document.getElementById('rs'+i);
+    rs.textContent=c.status==='found'?c.result:(c.status==='running'?`searching ${((performance.now()-c.startT)/1000|0)}s`:c.status);
+    rs.style.color=c.status==='found'?'#4ade80':'#8fa2b8';
+  });
+  document.getElementById('totals').textContent=
+    `this arena run: ${((tin+tout)/1000).toFixed(1)}k tokens · $${cost.toFixed(4)}`;
+},250);
+// lab lifetime totals
+setInterval(async()=>{
+  try{ const u=await (await fetch('/api/usage')).json();
+    document.getElementById('totals').textContent +=
+      `  |  lab lifetime: ${(u.tokens_in/1e6).toFixed(2)}M in · $${u.cost_usd.toFixed(4)}`;
+  }catch(e){}
+},10000);
+
+document.getElementById('startall').onclick=()=>chambers.forEach(c=>c.start());
+document.getElementById('stopall').onclick=()=>chambers.forEach(c=>c.stop());
+</script>
+</body>
+</html>

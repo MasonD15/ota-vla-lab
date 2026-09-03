@@ -1,0 +1,11 @@
+{"parts":[
+ {"name":"Printed chassis","qty":1,"status":"designed","source":"3D print (rover_chassis.stl)"},
+ {"name":"TT gear motor + wheel","qty":2,"status":"to buy","source":"Amazon ~$12/4pk"},
+ {"name":"L298N motor driver","qty":1,"status":"to buy","source":"Amazon ~$7"},
+ {"name":"Raspberry Pi 4 (2GB)","qty":1,"status":"to buy","source":"Amazon ~$50"},
+ {"name":"Pi Camera Module 3","qty":1,"status":"to buy","source":"Amazon ~$25"},
+ {"name":"HC-SR04 ultrasonic","qty":1,"status":"to buy","source":"Amazon 3pk ~$8"},
+ {"name":"USB power bank (Pi)","qty":1,"status":"owned?","source":"existing"},
+ {"name":"18650 holder + cells (motors)","qty":1,"status":"to buy","source":"Amazon ~$15"},
+ {"name":"Dupont jumper kit","qty":1,"status":"to buy","source":"Amazon ~$7"}
+]}

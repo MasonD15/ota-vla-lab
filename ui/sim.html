@@ -1,0 +1,1577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Robotics Lab · Sim</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { height:100%; overflow:hidden; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+  #app { position:fixed; inset:0; background:#0d1015; }
+  canvas { display:block; }
+  .panel { background:rgba(19,23,31,.92); backdrop-filter:blur(12px);
+    border:1px solid rgba(255,255,255,.08); border-radius:12px; color:#c9d3e0; }
+  .panel h2 { font-size:10px; text-transform:uppercase; letter-spacing:.08em;
+    color:#6b7a8d; margin-bottom:8px; }
+
+  #side { position:absolute; top:14px; left:14px; z-index:10; width:250px;
+    padding:14px; font-size:12.5px; max-height:calc(100% - 28px); overflow-y:auto; }
+  #side h1 { font-size:13px; color:#fff; }
+  #side .sub { font-size:10.5px; color:#5f7188; margin-bottom:10px; }
+  #side a { color:#3b82f6; text-decoration:none; font-size:11px; }
+  .part { display:flex; justify-content:space-between; gap:6px; padding:4px 2px;
+    border-bottom:1px solid rgba(255,255,255,.05); font-size:11.5px; }
+  .part .st { color:#5f7188; font-size:10.5px; }
+
+  #goal { width:100%; height:44px; resize:none; background:#0d1116; color:#dfe7f0;
+    border:1px solid rgba(255,255,255,.12); border-radius:8px; padding:7px; font-size:12px;
+    font-family:inherit; margin-bottom:8px; }
+  #goal:focus { outline:none; border-color:#3b82f6; }
+  button { padding:9px 12px; border:none; border-radius:8px; background:#26303f;
+    color:#dfe7f0; font-weight:600; font-size:12px; cursor:pointer; }
+  button:hover { background:#31405a; }
+  button.primary { background:#3b82f6; color:#fff; width:100%; }
+  button.primary.on { background:#dc2626; }
+  #reset { width:100%; margin-top:6px; }
+
+  #pov { position:absolute; top:14px; right:14px; z-index:10; padding:10px; }
+  #pov canvas { border-radius:8px; display:block; }
+  #pov .cap { font-size:10px; color:#5f7188; margin-top:6px; display:flex; justify-content:space-between; }
+
+  #log { position:absolute; bottom:14px; right:14px; z-index:10; width:420px;
+    max-height:320px; padding:12px; font-size:11.5px; overflow-y:auto; }
+  #logtot { font-size:10px; color:#5f7188; font-family:ui-monospace,monospace; margin-bottom:6px; }
+  .lrow { padding:5px 0; border-bottom:1px solid rgba(255,255,255,.05); line-height:1.5; cursor:pointer; }
+  .lrow:hover { background:rgba(255,255,255,.03); }
+  .lrow .v { color:#4ade80; font-family:ui-monospace,monospace; }
+  .lrow .m { color:#6b7a8d; font-family:ui-monospace,monospace; font-size:10.5px; }
+  .lrow .s { color:#9fb0c3; }
+  .lrow.err .s { color:#f87171; }
+  .lrow.think { background:rgba(167,139,250,.07); border-radius:6px; padding-left:4px; }
+  .ldet { display:none; margin-top:6px; padding:8px; background:#0d1116; border-radius:8px; }
+  .lrow.open .ldet { display:block; cursor:auto; }
+  .ldet h4 { font-size:9.5px; text-transform:uppercase; letter-spacing:.07em; color:#5f7188; margin:8px 0 3px; }
+  .ldet h4:first-child { margin-top:0; }
+  .ldet pre { font-size:10px; line-height:1.5; color:#a8b8ca; font-family:ui-monospace,monospace;
+    white-space:pre-wrap; word-break:break-word; max-height:140px; overflow-y:auto; }
+  .ldet img { width:140px; border-radius:6px; display:block; }
+
+  #hint { position:absolute; bottom:14px; left:14px; z-index:10; color:#4d5d6e;
+    font-size:11px; line-height:1.7; }
+  #hud { position:absolute; top:14px; left:50%; transform:translateX(-50%); z-index:10;
+    padding:8px 16px; font-size:12px; color:#9fb0c3; display:flex; gap:18px; }
+  #hud b { color:#e7edf5; font-family:ui-monospace,monospace; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="jserr" style="display:none; position:absolute; bottom:0; left:0; right:0; z-index:99; background:#7f1d1d; color:#fecaca; font-size:11px; padding:6px 10px; font-family:ui-monospace,monospace"></div>
+  <div id="tabwarn" style="display:none; position:absolute; top:0; left:0; right:0; z-index:99; background:#7f1d1d; color:#fecaca; text-align:center; font-size:12px; padding:6px; font-weight:700">⚠ ANOTHER SIM TAB IS ACTIVE — close it: multiple tabs corrupt session logs and fight over the rover</div>
+  <div id="side" class="panel">
+    <h1>Sim Harness</h1>
+    <div class="sub">virtual test arena · <a href="/">← back to design</a></div>
+
+    <h2>Split-Brain Autopilot</h2>
+    <textarea id="goal" placeholder="Big goal… e.g. 'explore and label everything'">Explore the arena. Avoid obstacles.</textarea>
+    <details style="margin:4px 0"><summary style="font-size:11px; color:#6b7a8d; cursor:pointer">⚙ options</summary>
+    <label style="display:flex; gap:6px; align-items:center; margin:6px 0 4px; font-size:11px; color:#8fa2b8; cursor:pointer">
+      <input type="checkbox" id="camfeed" checked style="accent-color:#3b82f6">
+      send camera feed to thinker
+    </label>
+    <label style="display:flex; gap:6px; align-items:center; margin:2px 0 4px; font-size:11px; color:#8fa2b8; cursor:pointer" title="off = informed-only: no code stops; the LLM's mission sizing is the only collision protection">
+      <input type="checkbox" id="guards" style="accent-color:#f59e0b">
+      code safety overrides (off = informed-only)
+    </label>
+    <label style="display:flex; gap:6px; align-items:center; margin:2px 0 4px; font-size:11px; color:#8fa2b8; cursor:pointer">
+      <input type="checkbox" id="followcam" style="accent-color:#3b82f6">
+      camera follows rover
+    </label>
+    </details>
+    <button id="huntbtn" style="width:100%; margin:4px 0; padding:7px; border:none; border-radius:8px; background:#26303f; color:#e6b422; font-weight:600; font-size:11.5px; cursor:pointer">🎯 Set goal: hidden-number hunt</button>
+    <div id="huntres" style="font-size:11px; min-height:14px; margin-bottom:2px"></div>
+    <div id="usage" style="font-size:10px; color:#5f7188; font-family:ui-monospace,monospace"></div>
+    <div style="display:flex; gap:6px; align-items:center; margin:2px 0 8px; font-size:11px; color:#8fa2b8">
+      <span>🧠 thinker:</span>
+      <select id="thinkmodel" style="flex:1; background:#0d1116; color:#dfe7f0; border:1px solid rgba(255,255,255,.12); border-radius:6px; padding:4px; font-size:11px">
+        <option value="gpt-4.1">gpt-4.1 (plots mind's-eye paths 1/1 · default)</option>
+        <option value="gpt-5-mini">gpt-5-mini (best digits · plots 1/2)</option>
+        <option value="gpt-4.1-mini">gpt-4.1-mini (fast+cheap · never plots)</option>
+        <option value="gpt-4o-mini">gpt-4o-mini (0/10 digits — avoid)</option>
+      </select>
+    </div>
+    <button id="auto" class="primary">▶ Start autopilot</button>
+    <button id="reset">↺ Reset car</button>
+    <div id="llmstat" style="font-size:10.5px;color:#5f7188;margin-top:6px"></div>
+
+    <h2 style="margin-top:12px">Mission plan (planner → thinker)</h2>
+    <div id="planbox" style="font-size:10.5px; line-height:1.6; background:#0d1116; border-radius:8px; padding:8px; color:#8fa2b8">no plan — starts with autopilot</div>
+
+    <h2 style="margin-top:12px">Current subgoal (thinker → driver)</h2>
+    <div id="sgtext" style="font-size:12px;color:#cabffd;background:#0d1116;border-radius:8px;padding:8px;line-height:1.5">–</div>
+    <div id="sgdone" style="font-size:10px;color:#5f7188;margin-top:3px"></div>
+    <div id="sgstat" style="font-size:10px;color:#8fa2b8;margin-top:2px"></div>
+
+    <h2 style="margin-top:12px">Loop frequencies</h2>
+    <div style="display:flex;align-items:center;gap:7px;margin:4px 0">
+      <span style="font-size:10.5px;width:56px;color:#a78bfa">🧠 think</span>
+      <div style="flex:1;height:6px;background:#0d1116;border-radius:3px;overflow:hidden"><div id="fbthink" style="height:100%;width:0%;background:#a78bfa;transition:width .3s"></div></div>
+      <span id="fvthink" style="font-size:10px;width:52px;text-align:right;color:#8fa2b8;font-family:ui-monospace,monospace">–</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:7px;margin:4px 0">
+      <span style="font-size:10.5px;width:56px;color:#4ade80">⚙ drive</span>
+      <div style="flex:1;height:6px;background:#0d1116;border-radius:3px;overflow:hidden"><div id="fbdrive" style="height:100%;width:0%;background:#4ade80;transition:width .3s"></div></div>
+      <span id="fvdrive" style="font-size:10px;width:52px;text-align:right;color:#8fa2b8;font-family:ui-monospace,monospace">–</span>
+    </div>
+
+    <details style="margin-top:12px"><summary style="font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:#6b7a8d; cursor:pointer">LLM memory</summary>
+    <pre id="llmmem" style="font-size:10.5px; line-height:1.6; color:#c9b458; font-family:ui-monospace,monospace; background:#0d1116; border-radius:8px; padding:8px; white-space:pre-wrap; word-break:break-word">(empty)</pre>
+
+    </details>
+    <details style="margin-top:10px"><summary style="font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:#6b7a8d; cursor:pointer">Sensors (sent to LLM each call)</summary>
+    <pre id="sensors" style="font-size:10.5px; line-height:1.6; color:#8fa2b8; font-family:ui-monospace,monospace; background:#0d1116; border-radius:8px; padding:8px; overflow-x:auto"></pre>
+
+    </details>
+    <details style="margin-top:10px"><summary style="font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:#6b7a8d; cursor:pointer">Parts (this project)</summary>
+    <div id="parts"></div>
+    </details>
+
+    <details style="margin-top:10px" id="settingsbox"><summary style="font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:#e6b422; cursor:pointer">🔑 Settings — API key</summary>
+      <div style="font-size:10.5px; color:#8fa2b8; margin:6px 0 4px">OpenAI API key (stored locally in config.json, never committed):</div>
+      <input type="password" id="apikey" placeholder="sk-..." style="width:100%; background:#0d1116; color:#dfe7f0; border:1px solid rgba(255,255,255,.12); border-radius:7px; padding:7px; font-size:11px; font-family:ui-monospace,monospace">
+      <button id="savekey" style="width:100%; margin-top:6px; padding:8px; border:none; border-radius:8px; background:#26303f; color:#dfe7f0; font-weight:600; font-size:11.5px; cursor:pointer">Save key</button>
+      <div id="keystat" style="font-size:10.5px; margin-top:5px; color:#5f7188"></div>
+    </details>
+  </div>
+
+  <div id="hud" class="panel">
+    <span>L <b id="hl">0.00</b></span>
+    <span>R <b id="hr">0.00</b></span>
+    <span>ultrasonic <b id="hd">–</b> mm</span>
+    <span>collisions <b id="hcol">0</b></span>
+    <span>LLM <b id="hlat">–</b> ms</span>
+    <span><b id="hhz">–</b> cmd/s</span>
+    <span id="hmode">manual</span>
+  </div>
+
+  <div id="pov" class="panel">
+    <canvas id="povcanvas" width="320" height="240"></canvas>
+    <div class="cap"><span>rover camera (sent to LLM)</span><span id="povstat"></span></div>
+  </div>
+
+  <div id="storybox" class="panel" style="position:absolute; top:300px; right:14px; width:344px; max-height:290px; overflow-y:auto; padding:12px; z-index:10">
+    <h2 style="font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:#6b7a8d; margin-bottom:6px">Thought process (thinker narration)</h2>
+    <div id="story" style="font-size:11px; line-height:1.55"></div>
+  </div>
+
+  <div id="log" class="panel"><h2>LLM command log <span style="color:#3d4a58">· click a row for full detail</span></h2>
+    <div id="logtot">session: 0 in / 0 out · $0.000000</div>
+    <div id="logrows"></div></div>
+
+  <div id="hint">WASD / arrows · drive manually<br>autopilot: camera frame → LLM → motor vectors</div>
+
+  <div id="mind" class="panel" style="position:absolute; bottom:14px; left:50%; transform:translateX(-50%); padding:10px; z-index:10">
+    <h2>mind map · only what it has learned</h2>
+    <canvas id="mindmap" width="200" height="200" style="display:block"></canvas>
+    <h2 style="margin-top:8px">what the AI receives (image + grid)</h2>
+    <img id="aimap" width="200" style="display:block; border-radius:6px">
+    <pre id="aigrid" style="font-size:7.5px; line-height:1.15; color:#8fa2b8; font-family:ui-monospace,monospace; margin-top:4px"></pre>
+  </div>
+</div>
+
+<script src="lib/three.min.js"></script>
+<script src="lib/OrbitControls.js"></script>
+<script>
+// ================= arena =================
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x11151c);
+scene.fog = new THREE.Fog(0x11151c, 1500, 3200);
+
+const chase = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 1, 6000);
+chase.up.set(0,0,1);
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+document.getElementById('app').prepend(renderer.domElement);
+const controls = new THREE.OrbitControls(chase, renderer.domElement);
+controls.enableDamping = true;
+
+scene.add(new THREE.AmbientLight(0xffffff,.75));   // brighter: color ID in POV jpegs
+const sun = new THREE.DirectionalLight(0xffffff,.8); sun.position.set(500,-400,800);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048,2048);
+sun.shadow.camera.left=-1500; sun.shadow.camera.right=1500;
+sun.shadow.camera.top=1500; sun.shadow.camera.bottom=-1500; sun.shadow.camera.far=3500;
+scene.add(sun);
+renderer.shadowMap.enabled = true;
+
+// floor 2.4m x 2.4m — 200mm checkerboard tiles (a measuring stick in every frame)
+const ARENA = 2400, TILE = 200;
+const fc = document.createElement('canvas'); fc.width = fc.height = 600;
+const fx = fc.getContext('2d');
+const tp = 600/(ARENA/TILE);
+for(let i=0;i<12;i++) for(let j=0;j<12;j++){
+  fx.fillStyle = (i+j)%2 ? '#39465a' : '#242d3a';
+  fx.fillRect(i*tp, j*tp, tp, tp);
+}
+const ftex = new THREE.CanvasTexture(fc);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(ARENA,ARENA),
+  new THREE.MeshStandardMaterial({map:ftex, roughness:.95}));
+floor.receiveShadow = true;
+scene.add(floor);
+
+// wall texture: vertical stripes + orange warning band on top (walls were a flat
+// grey blur in the POV — indistinguishable from empty space; see LAB_NOTES)
+const wc = document.createElement('canvas'); wc.width = 256; wc.height = 64;
+const wx = wc.getContext('2d');
+wx.fillStyle='#3d4a5e'; wx.fillRect(0,0,256,64);
+wx.fillStyle='#55688a'; wx.fillRect(0,0,64,64); wx.fillRect(128,0,64,64);
+wx.fillStyle='#d9832b'; wx.fillRect(0,0,256,10);
+const wtex = new THREE.CanvasTexture(wc);
+wtex.wrapS = THREE.RepeatWrapping; wtex.repeat.set(6,1);
+const wallMat = new THREE.MeshStandardMaterial({map:wtex, roughness:.8});
+
+// walls + obstacles (colored so the VLM can refer to them)
+const obstacles = [];
+function addBox(x,y,w,d,h,color,mat){
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w,d,h),
+    mat || new THREE.MeshStandardMaterial({color, roughness:.7}));
+  m.position.set(x,y,h/2);
+  m.castShadow = true; m.receiveShadow = true;
+  scene.add(m);
+  obstacles.push({mesh:m, x, y, hw:w/2, hd:d/2});
+  return m;
+}
+const W=30;
+addBox(0,  ARENA/2, ARENA, W, 220, 0, wallMat); addBox(0, -ARENA/2, ARENA, W, 220, 0, wallMat);
+addBox( ARENA/2, 0, W, ARENA, 220, 0, wallMat); addBox(-ARENA/2, 0, W, ARENA, 220, 0, wallMat);
+// colored blocks — purer hues (previous muddy tones misread in the 320x240 POV jpeg)
+const BLOCKS = [
+  {name:'red',    c:0xe03030, s:[-600,300,220,220,200]},
+  {name:'blue',   c:0x2f6fe0, s:[500,-450,260,180,160]},
+  {name:'green',  c:0x2fb14c, s:[200,550,180,260,240]},
+  {name:'yellow', c:0xe6b422, s:[-350,-650,240,240,180]},
+  {name:'purple', c:0x9a4bdc, s:[750,500,200,200,220]},
+];
+let secretTruth = null;
+const blockMeshes = BLOCKS.map(b => ({...b, mesh: addBox(b.s[0],b.s[1],b.s[2],b.s[3],b.s[4], b.c)}));
+
+// hidden-number hunt: one random block gets a number painted on the face turned
+// AWAY from the arena center — the rover must circle blocks to see it
+// digit is a separate sign plane mounted on the away-face — box UVs rotate/mirror
+// textures per-face (found in vision benchmarking); a plane gives exact orientation
+let secretSign = null;
+function assignSecret(){
+  if(secretSign){ scene.remove(secretSign); secretSign = null; }
+  const b = blockMeshes[Math.floor(Math.random()*blockMeshes.length)];
+  const n = 1 + Math.floor(Math.random()*9);
+  const cnv = document.createElement('canvas'); cnv.width = cnv.height = 256;
+  const cx2 = cnv.getContext('2d');
+  cx2.fillStyle = '#'+b.c.toString(16).padStart(6,'0'); cx2.fillRect(0,0,256,256);
+  cx2.fillStyle = '#ffffff'; cx2.font = 'bold 190px -apple-system';
+  cx2.textAlign = 'center'; cx2.textBaseline = 'middle';
+  cx2.fillText(String(n), 128, 140);
+  const ax = Math.abs(b.s[0]) >= Math.abs(b.s[1]);
+  const nx = ax ? (b.s[0] > 0 ? 1 : -1) : 0;
+  const ny = ax ? 0 : (b.s[1] > 0 ? 1 : -1);
+  const px = b.s[0] + nx*(b.s[2]/2 + 2), py = b.s[1] + ny*(b.s[3]/2 + 2), pz = b.s[4]/2;
+  const size = Math.min(ax ? b.s[3] : b.s[2], b.s[4]) * 0.8;
+  secretSign = new THREE.Mesh(new THREE.PlaneGeometry(size, size),
+    new THREE.MeshStandardMaterial({map:new THREE.CanvasTexture(cnv), roughness:.7}));
+  secretSign.position.set(px, py, pz);
+  secretSign.up.set(0,0,1);
+  secretSign.lookAt(px+nx, py+ny, pz);
+  scene.add(secretSign);
+  secretTruth = {color: b.name, number: n};
+  console.log('secret (shh):', secretTruth);
+}
+assignSecret();
+
+// ================= the car =================
+const car = new THREE.Group();
+const body = new THREE.Mesh(new THREE.BoxGeometry(180,120,50),
+  new THREE.MeshStandardMaterial({color:0x8d939c, roughness:.6}));
+body.position.z = 60; car.add(body);
+const cab = new THREE.Mesh(new THREE.BoxGeometry(60,80,30),
+  new THREE.MeshStandardMaterial({color:0x3b82f6, roughness:.5}));
+cab.position.set(20,0,100); car.add(cab);
+const wheelGeo = new THREE.CylinderGeometry(35,35,24,24);
+const wheelMat = new THREE.MeshStandardMaterial({color:0x14161a, roughness:.9});
+const wheels = [];
+for (const [wx,wy] of [[60,80],[60,-80],[-60,80],[-60,-80]]){
+  const w = new THREE.Mesh(wheelGeo, wheelMat);
+  w.position.set(wx,wy,35); car.add(w); wheels.push(w);
+}
+// camera post + lens marker
+const post = new THREE.Mesh(new THREE.BoxGeometry(10,10,60),
+  new THREE.MeshStandardMaterial({color:0x8d939c})); post.position.set(80,0,115); car.add(post);
+car.traverse(o => { if(o.isMesh){ o.castShadow = true; o.receiveShadow = true; } });
+scene.add(car);
+
+// rover POV camera on a pan servo
+const povPan = new THREE.Group();
+povPan.position.set(85,0,150);
+car.add(povPan);
+const pov = new THREE.PerspectiveCamera(70, 320/240, 5, 5000);
+pov.up.set(0,0,1);
+povPan.add(pov);
+pov.lookAt(685,0,80);          // set while car+group are at identity: forward, slight down
+let camPan = 0;                // servo angle, radians
+
+const povRenderer = new THREE.WebGLRenderer({canvas:document.getElementById('povcanvas'),
+  antialias:true, preserveDrawingBuffer:true});
+povRenderer.setSize(320,240,false);
+povRenderer.shadowMap.enabled = true;   // the LLM needs the depth cues too
+
+// ================= physics-lite =================
+const state = { x:0, y:0, th:0, l:0, r:0 };
+// tab identity: multiple open sim tabs write into the SAME server session log
+// (session 211024: a stale tab's explore-plan mixed into a yellow-hunt session)
+const TAB_ID = Math.random().toString(36).slice(2,7);
+setInterval(()=>{
+  try{
+    const lock = JSON.parse(localStorage.getItem('lab_tab_lock')||'{}');
+    const now = Date.now();
+    if(lock.id && lock.id !== TAB_ID && now - lock.t < 5000){
+      document.getElementById('tabwarn').style.display = 'block';
+    } else {
+      localStorage.setItem('lab_tab_lock', JSON.stringify({id:TAB_ID, t:now}));
+      document.getElementById('tabwarn').style.display = 'none';
+    }
+  }catch(e){}
+}, 2000);
+// continuous control: commands are TARGETS; motors slew toward them at a rate tied
+// to the drive-loop period, so no command fully lands before the next correction
+let targetL=0, targetR=0, drivePeriodS=1.0;
+function stopMotors(){ targetL=0; targetR=0; state.l=0; state.r=0; }  // stops stay instant
+const MAXV = 450;          // mm/s
+const BASE = 160;          // wheelbase mm
+const RADIUS = 110;        // collision radius
+
+function ultrasonic(angleOff=0){
+  // ray from car nose at heading+offset, against obstacle AABBs
+  const a = state.th + angleOff;
+  const dirx = Math.cos(a), diry = Math.sin(a);
+  let best = 3000;
+  for(const o of obstacles){
+    for(let t=0; t<3000; t+=20){   // cheap march
+      const px = state.x + dirx*t, py = state.y + diry*t;
+      if(Math.abs(px-o.x) < o.hw && Math.abs(py-o.y) < o.hd){ best = Math.min(best,t); break; }
+    }
+  }
+  return Math.round(best);
+}
+
+// ---------- spatial memory: occupancy map built from sonar geometry (pure code) ----------
+// every sonar return marks "something here" in world coords; driving around paints the
+// map. No LLM involved — the LLM only ever contributes labels, never geometry.
+const OCC_CELL = 60;                 // mm grid
+const occupancy = new Map();         // "gx,gy" -> {x, y, hits}
+const collisionMarks = [];           // for the mind map
+function occAdd(wx, wy){
+  const gx = Math.round(wx/OCC_CELL), gy = Math.round(wy/OCC_CELL);
+  const k = gx+","+gy;
+  const c = occupancy.get(k);
+  if(c) c.hits++;
+  else if(occupancy.size < 4000) occupancy.set(k, {x:gx*OCC_CELL, y:gy*OCC_CELL, hits:1, label:null});
+}
+// semantic fusion: stamp a vision label onto the sonar geometry around a point —
+// the map stops being anonymous dots and becomes "that cluster IS the yellow block"
+function occLabel(wx, wy, label){
+  for(const c of occupancy.values())
+    if(Math.hypot(c.x-wx, c.y-wy) < 250) c.label = label;
+}
+// snap a sighting to real geometry: march the reported bearing through the occupancy
+// map and return the distance of the first known cluster (the dot outlines are good —
+// trust them over the model's distance guess, at ANY bearing)
+function occRayDist(worldAngle, ox=state.x, oy=state.y){
+  const dx = Math.cos(worldAngle), dy = Math.sin(worldAngle);
+  for(let t = 150; t < 3000; t += 30){
+    const gx = Math.round((ox + dx*t)/OCC_CELL), gy = Math.round((oy + dy*t)/OCC_CELL);
+    for(let ix = gx-1; ix <= gx+1; ix++)
+      for(let iy = gy-1; iy <= gy+1; iy++)
+        if(occupancy.has(ix+","+iy)) return t;
+  }
+  return null;
+}
+const colorOf = s => (String(s).toLowerCase().match(/red|blue|green|yellow|purple/)||[null])[0];
+function occScan(){                  // called ~5Hz: convert sonar returns to map points
+  for(const off of [0, Math.PI/6, -Math.PI/6]){
+    const d = ultrasonic(off);
+    if(d < 2900){
+      const a = state.th + off;
+      occAdd(state.x + Math.cos(a)*d, state.y + Math.sin(a)*d);
+    }
+  }
+}
+setInterval(occScan, 200);
+// landmark refinement: every 2s, pull each label 30% toward the nearest scanned
+// cluster within 450mm — placement error self-corrects as the map densifies
+setInterval(()=>{
+  for(const k of landmarkMap){
+    let best=null, bd=450;
+    for(const c of occupancy.values()){
+      const d=Math.hypot(c.x-k.x, c.y-k.y);
+      if(d<bd){ bd=d; best=c; }
+    }
+    if(best && bd>40){ k.x += (best.x-k.x)*0.3; k.y += (best.y-k.y)*0.3; }
+  }
+}, 2000);
+// 8-sector polar summary of the occupancy map — the compact "memory radar"
+// fed to both models: nearest remembered obstacle per 45° sector (3000 = unscanned)
+const RADAR_NAMES = ['ahead','ahead_left','left','rear_left','rear','rear_right','right','ahead_right'];
+function occRadar(){
+  const sect = Array(8).fill(3000), what = Array(8).fill(null);
+  for(const c of occupancy.values()){
+    const dx = c.x-state.x, dy = c.y-state.y;
+    const dist = Math.hypot(dx,dy);
+    let rel = Math.atan2(dy,dx) - state.th;
+    rel = Math.atan2(Math.sin(rel), Math.cos(rel));
+    const idx = ((Math.round(rel/(Math.PI/4)) % 8) + 8) % 8;
+    if(dist < sect[idx]){ sect[idx] = dist; what[idx] = c.label; }
+  }
+  const out = {};
+  RADAR_NAMES.forEach((n,i) => out[n] = {mm: Math.round(sect[i]), what: what[i]});
+  return out;
+}
+
+// nearest remembered obstacle in an arc (used as the virtual rear sense)
+function occNearest(centerRad, arcRad, maxMm){
+  let best = maxMm;
+  for(const c of occupancy.values()){
+    const dx = c.x-state.x, dy = c.y-state.y;
+    const dist = Math.hypot(dx,dy);
+    if(dist >= best) continue;
+    let rel = Math.atan2(dy,dx) - state.th - centerRad;
+    rel = Math.atan2(Math.sin(rel), Math.cos(rel));
+    if(Math.abs(rel) < arcRad/2) best = dist;
+  }
+  return Math.round(best);
+}
+
+// full onboard sensor suite — exactly what gets sent to the LLM each call
+let lastSpeed = 0, battV = 8.4;
+function readSensors(){
+  const uf = ultrasonic(0), ul = ultrasonic(Math.PI/6), ur = ultrasonic(-Math.PI/6);
+  return {
+    ultrasonic_front_mm: uf,
+    ultrasonic_left30_mm: ul,
+    ultrasonic_right30_mm: ur,
+    forward_clearance_mm: Math.min(uf, ul, ur),  // "room ahead": worst of the 3 rays
+    // mission-sizing budgets: how far it can actually go before contact.
+    // advance = live forward cone minus hull halfwidth; reverse = MEMORY only
+    advance_budget_mm: Math.max(0, Math.min(uf, ul, ur) - 150),
+    reverse_budget_mm: Math.max(0, occNearest(Math.PI, Math.PI*2/3, 3000) - 150),
+    heading_deg: Math.round(((state.th*180/Math.PI)%360+360)%360),
+    speed_mm_s: Math.round(lastSpeed),
+    motor_left_power: +state.l.toFixed(2),
+    motor_right_power: +state.r.toFixed(2),
+    battery_v: +battV.toFixed(2),
+    colliding: colliding,
+    stuck_s: +stuckTime.toFixed(1),
+    collisions_this_session: collisionCount,
+    speed_governor_active: speedCapActive,
+    pose_mm: {x: Math.round(state.x), y: Math.round(state.y)},  // dead-reckoned map position
+    visual_coverage: coverageInfo(),   // which world headings you have looked at from here
+    points_of_interest: poiMap.map(k => {
+      const dx=k.x-state.x, dy=k.y-state.y;
+      let b=(Math.atan2(dy,dx)-state.th)*180/Math.PI; b=((b+540)%360)-180;
+      return {label:k.label, map_x:Math.round(k.x), map_y:Math.round(k.y),
+              distance_mm:Math.round(Math.hypot(dx,dy)), bearing_deg:Math.round(-b)};
+    }),
+    rear_memory_mm: occNearest(Math.PI, Math.PI*2/3, 3000),  // remembered, NOT sensed
+    map_radar: occRadar(),          // remembered surroundings, per 45-deg sector
+    map_cells_scanned: occupancy.size,
+    known_landmarks: landmarkMap.map(k => {
+      const dx=k.x-state.x, dy=k.y-state.y;
+      let b=(Math.atan2(dy,dx)-state.th)*180/Math.PI; b=((b+540)%360)-180;
+      // reported image-style: positive = right (matches model convention)
+      return {label:k.label, distance_mm:Math.round(Math.hypot(dx,dy)), bearing_deg:Math.round(-b),
+              map_x:Math.round(k.x), map_y:Math.round(k.y)};
+    })
+  };
+}
+
+const STANDOFF = 120;   // minimum standoff shell beyond the hull — code-enforced
+function collides(nx,ny,margin=0){
+  for(const o of obstacles)
+    if(Math.abs(nx-o.x) < o.hw+RADIUS+margin && Math.abs(ny-o.y) < o.hd+RADIUS+margin) return true;
+  return false;
+}
+
+// collision / stuck tracking (session-scoped)
+let colliding=false, stuckTime=0, collisionCount=0, speedCapActive=false;
+let recoilUntil=0, recoilDir=0;   // bump-recoil reflex state
+// visual coverage: 36x10° buckets of world-heading looked at from the current spot;
+// resets when the rover relocates >300mm (coverage is position-dependent)
+let viewCov = new Array(36).fill(false), covOrigin = {x:0, y:0};
+setInterval(()=>{
+  if(Math.hypot(state.x-covOrigin.x, state.y-covOrigin.y) > 300){
+    viewCov = new Array(36).fill(false); covOrigin = {x:state.x, y:state.y};
+  }
+  const hd = Math.round(((state.th*180/Math.PI)%360+360)%360);
+  for(let o=-3; o<=3; o++) viewCov[(Math.floor(hd/10)+o+36)%36] = true;  // ~70° FOV
+}, 150);
+function coverageInfo(){
+  const pct = Math.round(viewCov.filter(Boolean).length/36*100);
+  const arcs = [];
+  let s = null;
+  for(let i=0; i<=36; i++){
+    const v = i<36 ? viewCov[i] : true;
+    if(!v && s===null) s = i;
+    if(v && s!==null){ arcs.push(`${s*10}°-${i*10}°`); s = null; }
+  }
+  return {pct, unseen: arcs.join(', ') || 'none — full circle covered from this spot'};
+}
+const collisionEvents = [];   // drained into the next LLM call + session log
+
+let last = performance.now();
+function step(){
+  const now = performance.now(), dt = Math.min((now-last)/1000,.05); last = now;
+  // MOTOR WATCHDOG — default is INACTIVE: motion exists only under an active
+  // mission with a fresh driver command. No mission, mission ended, or no command
+  // in 2.5s → motors zero. The thinker dictates; nothing moves by default.
+  if(autopilot && (!currentSubgoal || driverStatus!=='running' || now - lastDriveCmdT > 2500)){
+    stopMotors();
+  }
+  // ACTION EXECUTOR: hardcoded motion primitives; code owns the wheels
+  try{
+  if(autopilot && activeAction && driverStatus==='running'){
+    const A = activeAction, ar = A.args || {};
+    lastDriveCmdT = now;
+    if(A.name==='move'){
+      const dir = Math.sign(ar.mm||0) || 1;
+      const rem = Math.abs(ar.mm||0) - sgDistAccum;
+      if(rem <= 0) finishAction('done');
+      else {                       // taper for precision: slow down on approach
+        const sp = rem < 30 ? 0.12 : rem < 120 ? 0.25 : 0.5;
+        targetL = dir*sp; targetR = dir*sp;
+      }
+    } else if(A.name==='turn'){
+      const dir = Math.sign(ar.deg||0) || 1;      // positive = right (cw)
+      const rem = Math.abs(ar.deg||0) - Math.abs(sgTurnAccum*180/Math.PI);
+      if(rem <= 0) finishAction('done');
+      else {
+        const sp = rem < 6 ? 0.05 : rem < 20 ? 0.12 : 0.3;
+        targetL = dir*sp; targetR = -dir*sp;
+      }
+    } else if(A.name==='turn_to' || A.name==='face'){
+      let want;
+      if(A.name==='face'){
+        want = Math.atan2(A.tgt.y-state.y, A.tgt.x-state.x);   // live-tracks the landmark
+      } else {
+        want = (ar.heading_deg||0)*Math.PI/180;
+      }
+      let err = want - state.th; err = Math.atan2(Math.sin(err), Math.cos(err));
+      const errDeg = Math.abs(err*180/Math.PI);
+      if(errDeg < 0.9) finishAction('done');
+      else {
+        const sp = errDeg < 6 ? 0.05 : errDeg < 20 ? 0.12 : 0.3;
+        targetL = -sp*Math.sign(err); targetR = sp*Math.sign(err);
+      }
+    } else if(A.name==='scan'){
+      const dir = (ar.direction==='left') ? -1 : 1;
+      const gap = thinkTimes.length>1 ? (thinkTimes[thinkTimes.length-1]-thinkTimes[0])/(thinkTimes.length-1) : 3000;
+      const omega = (50*Math.PI/180) / (gap/1000);
+      const cap = Math.max(0.03, Math.min(0.09, omega*BASE/(2*MAXV)));
+      targetL = dir*cap; targetR = -dir*cap;
+      if(Math.abs(sgTurnAccum*180/Math.PI) >= 380) finishAction('done');  // full sweep, nothing commanded
+    } else if(A.name==='rotate_until_clear'){
+      const dir = (ar.direction==='left') ? -1 : 1;
+      const clr = Math.min(ultrasonic(0), ultrasonic(Math.PI/6), ultrasonic(-Math.PI/6));
+      if(clr >= (ar.clearance_mm||800)) finishAction('done');
+      else if(Math.abs(sgTurnAccum*180/Math.PI) >= 380) finishAction('blocked');
+      else { targetL = dir*0.25; targetR = -dir*0.25; }
+    } else if(A.name==='goto'){
+      const dx = A.tgt.x-state.x, dy = A.tgt.y-state.y, dist = Math.hypot(dx,dy);
+      if(dist <= (ar.standoff_mm||450)) finishAction('done');
+      else steerToward(Math.atan2(dy,dx), 0.45);
+    } else if(A.name==='orbit'){
+      const dx = state.x-A.tgt.x, dy = state.y-A.tgt.y, r = Math.hypot(dx,dy);
+      const posAng = Math.atan2(dy,dx);
+      if(A.lastPosAng !== null){
+        let dpa = posAng - A.lastPosAng; dpa = Math.atan2(Math.sin(dpa), Math.cos(dpa));
+        A.swept += dpa;
+      }
+      A.lastPosAng = posAng;
+      if(A.r0 === null) A.r0 = Math.max(420, Math.min(800, r));
+      if(Math.abs(A.swept*180/Math.PI) >= (ar.deg||180)) finishAction('done');
+      else {
+        const dirS = (ar.direction==='cw') ? -1 : 1;
+        const er = Math.max(-0.5, Math.min(0.5, (r - A.r0)/300));
+        steerToward(posAng + dirS*(Math.PI/2 + er), 0.4);
+      }
+    } else finishAction('blocked');
+  }
+  }catch(err){
+    reportJsError('action executor', err);
+    activeAction = null; wpActive = false; driverStatus = 'blocked'; stopMotors();
+    tevent('action_blocked', 'executor error — action aborted: ' + String(err && err.message || err).slice(0,120));
+  }
+  // WAYPOINT FOLLOWER: when a plotted path is active, code owns the wheels —
+  // pivot toward the point, advance with proportional steer, arrive, next.
+  if(autopilot && wpActive && driverStatus==='running'){
+    const wp = wpList[wpIdx];
+    const dxw = wp.x - state.x, dyw = wp.y - state.y;
+    const distw = Math.hypot(dxw, dyw);
+    if(distw < 120){
+      if(++wpIdx >= wpList.length){
+        wpActive = false; driverStatus = 'done'; stopMotors();
+        tevent('waypoints_done', `plotted path complete (${wpList.length} points)`);
+        document.getElementById('sgstat').textContent = 'driver: path complete ✓';
+      }
+    } else {
+      let err = Math.atan2(dyw, dxw) - state.th;
+      err = Math.atan2(Math.sin(err), Math.cos(err));
+      if(Math.abs(err) > 0.44){ targetL = -0.3*Math.sign(err); targetR = 0.3*Math.sign(err); }
+      else {
+        const steer = Math.max(-0.2, Math.min(0.2, err*0.6));
+        targetL = 0.45 - steer; targetR = 0.45 + steer;
+      }
+      lastDriveCmdT = now;   // code IS the driver here; feed the watchdog
+      document.getElementById('sgstat').textContent =
+        `driver: following path — waypoint ${wpIdx+1}/${wpList.length}, ${Math.round(distw)}mm`;
+    }
+  }
+  // slew toward targets: full-scale swing takes ~0.8x the measured drive period
+  const slew = 2.4 / Math.max(0.6, drivePeriodS);
+  state.l += Math.max(-slew*dt, Math.min(slew*dt, targetL - state.l));
+  state.r += Math.max(-slew*dt, Math.min(slew*dt, targetR - state.r));
+  const v = (state.l+state.r)/2*MAXV;
+  // clamp turn rate to ~92 deg/s — unclamped full pivot was 320 deg/s, which made
+  // 90-deg subgoals physically uncontrollable (see LAB_NOTES 37-collision session)
+  const w = Math.max(-1.6, Math.min(1.6, (state.r-state.l)/BASE*MAXV));
+  // REFLEX LOOP: hard stop if about to hit something ahead, and a physics-enforced
+  // speed governor under 400mm (LLM ignored polite prompt guidance — see LAB_NOTES)
+  const d = ultrasonic();
+  const guardsOn = document.getElementById('guards').checked;
+  let capMult = 1, revMult = 1;
+  if(guardsOn){
+    if(v > 0 && d < 400) capMult = Math.max(0.25, (d-80)/320); // 400mm→1.0, 200mm→0.38
+    // reverse governor from MEMORY, not a sensor
+    if(v < 0){
+      const rm = occNearest(Math.PI, Math.PI*2/3, 3000);
+      if(rm < 400) revMult = Math.max(0.25, (rm-80)/320);
+      if(rm < 130) revMult = 0;
+    }
+  }
+  speedCapActive = capMult < 1 || revMult < 1;
+  const dSide = Math.min(ultrasonic(Math.PI/6), ultrasonic(-Math.PI/6));
+  let vv = (guardsOn && Math.min(d, dSide) < 140 && v > 0) ? 0 : (v > 0 ? v*capMult : v*revMult);
+  // bump-recoil reflex (guarded mode only) — informed-only mode owns its mistakes
+  if(guardsOn && performance.now() < recoilUntil) vv = recoilDir * 0.35 * MAXV;
+  const nx = state.x + Math.cos(state.th)*vv*dt;
+  const ny = state.y + Math.sin(state.th)*vv*dt;
+  const wantMove = Math.abs(vv) > 1;
+  // STANDOFF OVERRIDE (pure code, not a model): powered motion may never bring the
+  // hull inside the standoff shell. Force-stop + block the mission; the free-running
+  // thinker sees the event and changes course. Recoil (moving away) is exempt.
+  const recoiling = performance.now() < recoilUntil;
+  if(guardsOn && wantMove && !recoiling && collides(nx,ny,STANDOFF) && !collides(state.x,state.y,STANDOFF)){
+    if(autopilot && driverStatus==='running'){
+      driverStatus='blocked'; stopMotors();
+      if(wpActive || activeAction){
+        const who = activeAction ? activeAction.name : 'follow_waypoints';
+        tevent('action_blocked', `${who} STOPPED BEFORE CONTACT (standoff): potential collision ahead — progress ${actionProgress()}, pose (${Math.round(state.x)},${Math.round(state.y)}) h${Math.round(((state.th*180/Math.PI)%360+360)%360)}, obstruction ~${ultrasonic(0)}mm ahead — re-plot AROUND this spot`);
+        wpActive=false; activeAction=null;
+      }
+      tevent('standoff_stop', 'code override: force-stopped at minimum standoff distance');
+      document.getElementById('sgstat').textContent='driver: blocked ⛔ (standoff override)';
+    }
+  } else if(!collides(nx,ny)){
+    state.x=nx; state.y=ny;
+    colliding = false;
+  } else {
+    if(!colliding){          // rising edge = one collision event
+      collisionCount++;
+      collisionEvents.push({type:'collision', pos:[Math.round(state.x),Math.round(state.y)],
+        heading_deg: Math.round(((state.th*180/Math.PI)%360+360)%360)});
+      collisionMarks.push([state.x, state.y]);
+      // paint the contact point into the map on the side we were moving toward —
+      // even a blind reverse hit becomes remembered geometry (touch teaches the map)
+      const mdir = Math.sign(state.l + state.r) || 1;
+      occAdd(state.x + mdir*Math.cos(state.th)*RADIUS,
+             state.y + mdir*Math.sin(state.th)*RADIUS);
+      // trigger recoil away from the contact + tell the thinker; BLOCK the mission
+      // so the driver can't re-ram the same spot (the old bounce loop counted one
+      // encounter as 5-8 collisions)
+      recoilDir = -mdir; recoilUntil = performance.now() + 400;
+      tevent('collision', `hit while moving ${mdir>0?'forward':'backward'}, auto-recoiled`);
+      if(autopilot && driverStatus==='running'){
+        driverStatus='blocked'; stopMotors();
+        if(wpActive || activeAction){
+          const who = activeAction ? activeAction.name : 'follow_waypoints';
+          tevent('action_blocked', `${who} STOPPED: contact while moving — progress ${actionProgress()}, pose (${Math.round(state.x)},${Math.round(state.y)}) h${Math.round(((state.th*180/Math.PI)%360+360)%360)}, front ${ultrasonic(0)}mm — re-plot AROUND this spot`);
+          wpActive=false; activeAction=null;
+        }
+        document.getElementById('sgstat').textContent='driver: blocked ⛔ (collision — holding for replan)';
+      }
+    }
+    colliding = true;
+  }
+  stuckTime = (colliding && wantMove) ? stuckTime + dt : 0;
+  sgTurnAccum += w*dt;               // unwrapped rotation since subgoal start
+  sgDistAccum += Math.abs(vv)*dt;    // distance traveled since subgoal start
+  if(!trail.length || Math.hypot(state.x-trail[trail.length-1][0], state.y-trail[trail.length-1][1]) > 60){
+    trail.push([state.x, state.y]);
+    if(trail.length > 600) trail.shift();
+  }
+  state.th += w*dt;
+  lastSpeed = Math.abs(vv);
+  battV = Math.max(6.0, battV - (Math.abs(state.l)+Math.abs(state.r))*dt*0.0012); // fake drain
+  car.position.set(state.x, state.y, 0);
+  car.rotation.z = state.th;
+  povPan.rotation.z += (camPan - povPan.rotation.z)*.15;   // servo slews, not snaps
+  const spin = vv*dt/35;
+  wheels.forEach(wh => wh.rotation.y += spin);
+  document.getElementById('hl').textContent = state.l.toFixed(2);
+  document.getElementById('hr').textContent = state.r.toFixed(2);
+  document.getElementById('hd').textContent = d;
+  const hc = document.getElementById('hcol');
+  hc.textContent = collisionCount;
+  hc.style.color = colliding ? '#f87171' : '';
+  return d;
+}
+
+// ================= manual control =================
+const keys = {};
+addEventListener('keydown', e=>{ keys[e.key.toLowerCase()]=true; });
+addEventListener('keyup',   e=>{ keys[e.key.toLowerCase()]=false; });
+function manualDrive(){
+  if(autopilot) return;
+  const f=(keys['w']||keys['arrowup'])?1:0, b=(keys['s']||keys['arrowdown'])?1:0;
+  const lft=(keys['a']||keys['arrowleft'])?1:0, rgt=(keys['d']||keys['arrowright'])?1:0;
+  let l=(f-b)*.7, r=(f-b)*.7;
+  l += (rgt-lft)*.4; r += (lft-rgt)*.4;
+  targetL = Math.max(-1,Math.min(1,l)); targetR = Math.max(-1,Math.min(1,r));
+}
+
+// ================= split-brain autopilot =================
+// THINKER (slow, vision+memory+landmarks) sets subgoals.
+// DRIVER (fast, telemetry-only, no camera) executes them, reports done/blocked.
+let autopilot=false, thinkInflight=false, driveInflight=false;
+let lastThinkT=0, lastThinkLat=null, lastDriveCmdT=0;
+let currentSubgoal='', doneWhen=null, driverStatus='(starting)';
+let sgStartHeading=0, sgStartT=0, sgTurnAccum=0, sgDistAccum=0;
+
+// ---------- mission plan (planner layer) ----------
+let plan=[], stepIdx=0, planBusy=false;
+function renderPlan(){
+  const el = document.getElementById('planbox');
+  if(!plan.length){ el.textContent = planBusy ? 'planning mission…' : 'no plan — starts with autopilot'; return; }
+  el.innerHTML = plan.map((s,i)=>{
+    const done = i < stepIdx, cur = i === stepIdx;
+    return `<div style="${done?'color:#3d4a58;text-decoration:line-through':''}${cur?'color:#4ade80;font-weight:700':''}">
+      ${cur?'▸':done?'✓':'·'} ${i+1}. ${s.step}</div>`;
+  }).join('');
+}
+// code-evaluated step checks: steps advance on measured facts, not LLM noticing.
+// (both 4.1-mini and 4.1 failed 4/4 to emit step_done on a clearly-met condition)
+function stepCheckLoop(){
+  if(!autopilot || !plan.length || stepIdx >= plan.length) return;
+  const chk = plan[stepIdx].check || {};
+  let met = false;
+  if(chk.type === 'landmark_known'){
+    met = landmarkMap.some(k => k.label.toLowerCase().includes(String(chk.label||'').toLowerCase()));
+  } else if(chk.type === 'near_landmark'){
+    const t = landmarkMap.find(k => k.label.toLowerCase().includes(String(chk.label||'').toLowerCase()));
+    met = !!t && Math.hypot(t.x-state.x, t.y-state.y) <= (chk.within_mm || 500);
+  } else if(chk.type === 'telemetry'){
+    const v = readSensors()[chk.field];
+    if(v !== undefined) met = chk.op === 'gt' ? v > chk.value : v < chk.value;
+  }  // perception: only the thinker's step_done advances it
+  if(met){
+    stepDoneTimes[stepIdx] = performance.now();
+    stepIdx++;
+    tevent('step_auto_done', `code check passed: "${plan[Math.max(0,stepIdx-1)].step}"`);
+    renderPlan();
+  }
+}
+setInterval(stepCheckLoop, 400);
+
+async function makePlan(){
+  if(planBusy) return;
+  planBusy = true; plan=[]; stepIdx=0; renderPlan();
+  try{
+    povRenderer.render(scene, pov);
+    const image = document.getElementById('camfeed').checked
+      ? document.getElementById('povcanvas').toDataURL('image/jpeg', .7) : null;
+    const r = await (await fetch('/api/sim/plan', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({tab: TAB_ID, goal: document.getElementById('goal').value,
+        image, sensors: readSensors(), memory: llmMemory})})).json();
+    if(r.plan && r.plan.length){ plan = r.plan; stepIdx = 0;
+      totIn += r.usage.in; totOut += r.usage.out; totCost += r.cost_usd; }
+    else addLog({isErr:true, errText:'planner: '+(r.error||'empty plan'), rt:r.latency_ms||0});
+  }catch(e){ addLog({isErr:true, errText:'planner: '+e, rt:0}); }
+  planBusy = false; renderPlan();
+}
+const dwText = dw => !dw ? '' : dw.field==='perception'
+  ? `perception: ${dw.desc||'thinker decides'}` : `${dw.field} ${dw.op==='gt'?'>':'<'} ${dw.value}`;
+// deterministic completion check — code judges the numbers, the LLM judges the world
+function checkDoneWhen(){
+  if(!autopilot || !doneWhen || driverStatus!=='running') return;
+  if(wpActive) return;                        // code path-follower manages completion
+  if(doneWhen.field==='perception') return;   // never auto-completes: the thinker
+                                              // ends it by issuing the next mission
+  const s = readSensors();
+  let val;
+  if(doneWhen.field==='turned_deg'){
+    val = Math.abs(sgTurnAccum*180/Math.PI);   // unwrapped — no 180° wrap trap
+  } else if(doneWhen.field==='advanced_mm'){
+    val = sgDistAccum;
+  } else if(doneWhen.field==='elapsed_s'){
+    val = (performance.now()-sgStartT)/1000;
+  } else val = s[doneWhen.field];
+  if(val===undefined) return;
+  const met = doneWhen.op==='gt' ? val>doneWhen.value : val<doneWhen.value;
+  const age = performance.now()-sgStartT;
+  // progress-type fields start at 0 — they can't be pre-true, so complete instantly;
+  // sensor-type fields keep the instant-done guard
+  const progressField = doneWhen.field==='turned_deg' || doneWhen.field==='advanced_mm';
+  if(met && progressField){
+    driverStatus='done'; stopMotors();
+    document.getElementById('sgstat').textContent='driver: done ✓ ('+dwText(doneWhen)+')';
+    return;
+  }
+  if(met && age < 500){
+    // condition was true at issue — a subgoal that asks for nothing. Feed that back
+    // to the thinker so it learns to pick meaningful thresholds
+    driverStatus='done instantly — your done_when was ALREADY TRUE when issued; pick a threshold meaningfully beyond current readings';
+    tevent('instant_done', 'subgoal condition was already true at issue');
+    stopMotors();
+    document.getElementById('sgstat').textContent='driver: instant-done ⚠ (bad threshold)';
+    return;
+  }
+  if(met && age >= 1000){
+    driverStatus='done';
+    stopMotors();    // hold until the free-running thinker's next mission lands
+    document.getElementById('sgstat').textContent='driver: done ✓ (condition met: '+dwText(doneWhen)+')';
+  }
+}
+setInterval(checkDoneWhen, 150);
+let llmMemory = '';          // thinker's scratchpad
+let sgRepeat = 0, lastSubgoalText = '', lastThinkPose = {x:0, y:0};
+let lastScene = '';                 // thinker's dense frame inventory, fed forward
+let wpList = [], wpIdx = 0, wpActive = false;   // plotted path (mind's-eye waypoints)
+let activeAction = null;                        // current motion primitive
+
+function ingestWaypoints(points){
+  const clamped = (points||[]).map(w => {
+    let wx = w.x, wy = w.y;
+    for(const k of landmarkMap){
+      const d = Math.hypot(wx-k.x, wy-k.y);
+      if(d < 450 && d > 1){ wx = k.x + (wx-k.x)/d*450; wy = k.y + (wy-k.y)/d*450; }
+    }
+    return {x: Math.max(-1100, Math.min(1100, wx)), y: Math.max(-1100, Math.min(1100, wy))};
+  });
+  wpList = [];
+  let px = state.x, py = state.y;
+  for(const w of clamped){
+    const seg = Math.hypot(w.x-px, w.y-py);
+    const n = Math.max(1, Math.round(seg/300));
+    for(let i=1; i<=n && wpList.length<24; i++)
+      wpList.push({x: px + (w.x-px)*i/n, y: py + (w.y-py)*i/n});
+    px = w.x; py = w.y;
+  }
+  wpIdx = 0; wpActive = wpList.length > 0;
+  tevent('path_plotted', `${wpList.length} densified waypoints`);
+}
+
+function startAction(a){
+  wpActive = false; activeAction = null;
+  sgTurnAccum = 0; sgDistAccum = 0; sgStartT = performance.now(); sgStartHeading = state.th;
+  driverStatus = 'running';
+  const args = a.args || {};
+  if(a.name === 'follow_waypoints'){ ingestWaypoints(args.points); if(!wpActive) driverStatus='blocked'; }
+  else if(a.name === 'stop'){ stopMotors(); driverStatus = 'done'; }
+  else {
+    let tgt = null;
+    if(a.name === 'mark'){
+      const label = String(args.label||'poi').slice(0,20);
+      const ex = poiMap.find(k => k.label === label);
+      if(ex){ ex.x = args.x; ex.y = args.y; }
+      else if(poiMap.length < 16) poiMap.push({label, x: args.x, y: args.y});
+      tevent('poi_marked', `${label} at (${Math.round(args.x)},${Math.round(args.y)})`);
+      driverStatus = 'done';
+      return;
+    }
+    if(a.name === 'goto' || a.name === 'face'){
+      tgt = landmarkMap.find(k => k.label.toLowerCase().includes(String(args.label||'').toLowerCase()));
+      if(!tgt){
+        driverStatus = 'blocked';
+        tevent('action_error', `${a.name}: landmark '${args.label}' is not in the map — label it first`);
+        return;
+      }
+    }
+    activeAction = {name: a.name, args, tgt, swept: 0, lastPosAng: null, r0: null};
+    lastDriveCmdT = performance.now();
+  }
+  markFreq(driveTimes, 'fbdrive', 'fvdrive');
+  sessCmds++;
+}
+
+function finishAction(status){
+  activeAction = null; stopMotors(); driverStatus = status;
+  document.getElementById('sgstat').textContent = 'action: ' + status + (status==='done' ? ' ✓' : ' ⛔');
+  tevent(status==='done' ? 'action_done' : 'action_failed', currentSubgoal);
+}
+
+function steerToward(hdg, speed){
+  let err = hdg - state.th; err = Math.atan2(Math.sin(err), Math.cos(err));
+  if(Math.abs(err) > 0.44){ targetL = -0.3*Math.sign(err); targetR = 0.3*Math.sign(err); }
+  else { const s = Math.max(-0.2, Math.min(0.2, err*0.6)); targetL = speed - s; targetR = speed + s; }
+}
+
+function actionProgress(){
+  if(wpActive) return `follow_waypoints: point ${wpIdx+1}/${wpList.length}`;
+  if(!activeAction) return driverStatus==='running' ? '(none)' : `last action ${driverStatus}`;
+  const A = activeAction, deg = Math.abs(sgTurnAccum*180/Math.PI);
+  if(A.name==='move') return `move: ${Math.round(sgDistAccum)}/${Math.abs(A.args.mm||0)}mm`;
+  if(A.name==='turn') return `turn: ${Math.round(deg)}/${Math.abs(A.args.deg||0)}°`;
+  if(A.name==='scan') return `scan: ${Math.round(deg)}° swept, watching for target`;
+  if(A.name==='rotate_until_clear') return `rotate_until_clear: ${Math.round(deg)}° so far`;
+  if(A.name==='goto' && A.tgt) return `goto ${A.tgt.label}: ${Math.round(Math.hypot(A.tgt.x-state.x, A.tgt.y-state.y))}mm away, stop at ${A.args.standoff_mm||450}`;
+  if(A.name==='orbit') return `orbit ${A.tgt?A.tgt.label:''}: ${Math.round(Math.abs(A.swept*180/Math.PI))}/${A.args.deg||180}° swept`;
+  return A.name;
+}
+const stepDoneTimes = {};           // stepIdx -> completion timestamp
+
+// code-measured, step-by-step mission progress — the upward feedback channel
+function planProgress(){
+  if(!plan.length) return '(no plan yet)';
+  const s = readSensors();
+  return plan.map((st,i)=>{
+    const chk = st.check || {};
+    if(i < stepIdx){
+      const age = stepDoneTimes[i] ? Math.round((performance.now()-stepDoneTimes[i])/1000)+'s ago' : '';
+      return `  ✓ step ${i+1} DONE ${age}: ${st.step}`;
+    }
+    if(i > stepIdx) return `  · step ${i+1} pending: ${st.step}`;
+    let detail = '';
+    if(chk.type === 'near_landmark'){
+      const t = landmarkMap.find(k => k.label.toLowerCase().includes(String(chk.label||'').toLowerCase()));
+      detail = t ? `${Math.round(Math.hypot(t.x-state.x, t.y-state.y))}mm from ${t.label}, need ≤${chk.within_mm||500}mm`
+                 : `'${chk.label}' not yet on the map`;
+    } else if(chk.type === 'landmark_known'){
+      detail = `waiting to identify '${chk.label}' (not yet labeled)`;
+    } else if(chk.type === 'telemetry'){
+      detail = `${chk.field}=${s[chk.field]}, need ${chk.op==='gt'?'>':'<'} ${chk.value}`;
+    } else {
+      detail = `needs your visual judgment: ${st.success||'(see step)'}`;
+    }
+    return `  ▸ step ${i+1} CURRENT: ${st.step} — ${detail}`;
+  }).join('\n');
+}
+const subgoalHistory = [];   // last subgoals + outcomes, fed back to the thinker
+const landmarkMap = [];      // semantic map: thinker labels things, code remembers where
+const trail = [];            // driven path, for the mind-map display
+const poiMap = [];           // thinker-marked points of interest (map annotations)
+// motion history → code-measured "are we spinning?" signal for the thinker
+const motionHist = [];
+setInterval(()=>{
+  motionHist.push({t: performance.now(), th: state.th, x: state.x, y: state.y,
+                   front: ultrasonic(0)});
+  while(motionHist.length && performance.now()-motionHist[0].t > 16000) motionHist.shift();
+}, 500);
+
+// events since the thinker's last plan — it must hear what happened while thinking
+const thinkerEvents = [];
+function tevent(type, detail){
+  thinkerEvents.push({t: performance.now(), type, detail});
+  while(thinkerEvents.length > 20) thinkerEvents.shift();
+}
+
+// code-assessed situation headline: salient, deterministic, can't hallucinate
+function situation(){
+  const parts = [];
+  const front = ultrasonic(0);
+  if(colliding) parts.push("IN CONTACT with an obstacle RIGHT NOW");
+  if(stuckTime > 0.5) parts.push(`STUCK for ${stuckTime.toFixed(1)}s (commanding motion, not moving)`);
+  const old = motionHist.find(m => performance.now()-m.t > 4000);
+  if(old && old.front - front > 200 && front < 900)
+    parts.push(`obstacle CLOSING AHEAD: ${front}mm now, was ${old.front}mm ~${((performance.now()-old.t)/1000).toFixed(0)}s ago`);
+  const rm = recentMotion();
+  if(rm.rotated_deg_15s > 360 && rm.advanced_mm_15s < 150)
+    parts.push(`SPINNING IN PLACE (${rm.rotated_deg_15s} deg rotated, only ${rm.advanced_mm_15s}mm net movement)`);
+  const recentHits = thinkerEvents.filter(e => e.type==='collision' && performance.now()-e.t < 20000).length;
+  if(recentHits) parts.push(`${recentHits} collision(s) in the last 20s`);
+  if(sgRepeat >= 3) parts.push(`REPEATING YOURSELF: same subgoal ${sgRepeat+1}x with zero progress — this approach is NOT WORKING, do something different`);
+  // scene-digit watchdog: its own scene reported a readable digit — don't drive past
+  const goalTxt = document.getElementById('goal').value || '';
+  const tgtColor = (goalTxt.match(/the (RED|BLUE|GREEN|YELLOW|PURPLE) block/i)||[])[1];
+  if(tgtColor && /\b(digit|number)\s*['"]?\d/i.test(lastScene||''))
+    parts.push(`YOUR OWN SCENE READ A DIGIT near the ${tgtColor.toLowerCase()} block — if it is legible, ANSWER NOW (eyes beat theory; do not drive past it)`);
+  return parts.length ? parts.join("; ") : "nominal — no contact, not stuck, no closing obstacle";
+}
+function recentMotion(){
+  if(motionHist.length < 2) return {rotated_deg_15s: 0, advanced_mm_15s: 0};
+  let rot = 0;
+  for(let i=1; i<motionHist.length; i++){
+    let d = motionHist[i].th - motionHist[i-1].th;
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    rot += Math.abs(d);
+  }
+  const a = motionHist[0], b = motionHist[motionHist.length-1];
+  return {rotated_deg_15s: Math.round(rot*180/Math.PI),
+          advanced_mm_15s: Math.round(Math.hypot(b.x-a.x, b.y-a.y))};
+}
+function posePayload(){ return {x: Math.round(state.x), y: Math.round(state.y),
+  th_deg: Math.round(state.th*180/Math.PI)}; }
+const logrows = document.getElementById('logrows');
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+let totIn=0, totOut=0, totCost=0;
+
+function addLog(e){   // e: {kind:'think'|'drive', cmd, rt, sensors, image?, isErr, errText}
+  const div = document.createElement('div');
+  if(e.isErr){
+    div.className = 'lrow err';
+    div.innerHTML = `<span class="s">${esc(e.errText)}</span> <span class="m">${e.rt|0}ms</span>`;
+    logrows.prepend(div);
+    while(logrows.children.length>60) logrows.lastChild.remove();
+    return;
+  }
+  const c = e.cmd;
+  totIn += c.usage.in; totOut += c.usage.out; totCost += c.cost_usd;
+  document.getElementById('logtot').textContent =
+    `session: ${(totIn/1000).toFixed(1)}k in / ${totOut} out · $${totCost.toFixed(6)}`;
+  const meta = `<span class="m">${e.rt|0}ms · ${(c.usage.in/1000).toFixed(1)}k→${c.usage.out} · $${c.cost_usd.toFixed(6)}</span>`;
+  if(e.kind === 'think'){
+    div.className = 'lrow think';
+    const lmnote = c.landmarks ? ` <span class="m">+${c.landmarks.length} landmark(s)</span>` : '';
+    div.innerHTML =
+      `<span style="color:#a78bfa;font-weight:700">🧠</span>
+       <span class="s" style="color:#cabffd">"${esc(c.subgoal)}"</span>${lmnote} ${meta}
+       <div class="ldet">
+         <h4>frame sent</h4>${e.image ? `<img src="${e.image}">` : '<pre>(camera feed off — no image sent)</pre>'}
+         <h4>done when (code-evaluated)</h4><pre>${esc(dwText(c.done_when)||'(unspecified)')}</pre>
+         <h4>telemetry sent</h4><pre>${esc(JSON.stringify(e.sensors,null,1))}</pre>
+         <h4>full context sent</h4><pre>${esc(c.context)}</pre>
+         <h4>raw reply · ${esc(c.model)}</h4><pre>${esc(c.raw)}</pre>
+         <h4>memory written</h4><pre>${esc(c.memory||'(none)')}</pre>
+       </div>`;
+  } else {
+    div.className = 'lrow';
+    const flag = c.done ? ' <span style="color:#4ade80">done✓</span>'
+               : c.blocked ? ' <span style="color:#f87171">blocked⛔</span>' : '';
+    div.innerHTML =
+      `<span class="v">[${c.left.toFixed(2)}, ${c.right.toFixed(2)}]</span>${flag}
+       <span class="s">${esc(c.say||'')}</span> ${meta}
+       <div class="ldet">
+         <h4>telemetry sent (no camera — driver is text-only)</h4><pre>${esc(JSON.stringify(e.sensors,null,1))}</pre>
+         <h4>full context sent</h4><pre>${esc(c.context)}</pre>
+         <h4>raw reply · ${esc(c.model)}</h4><pre>${esc(c.raw)}</pre>
+       </div>`;
+  }
+  div.onclick = ev => { if(!ev.target.closest('pre,img')) div.classList.toggle('open'); };
+  logrows.prepend(div);
+  while(logrows.children.length>60) logrows.lastChild.remove();
+}
+
+// frequency metrics: rolling 20s window per loop, rendered as bars
+const thinkTimes = [], driveTimes = [];
+function markFreq(arr, barId, valId){
+  const now = performance.now();
+  arr.push(now);
+  while(arr.length && now - arr[0] > 20000) arr.shift();
+  const hz = arr.length > 1 ? ((arr.length-1) / ((now - arr[0])/1000)) : 0;
+  document.getElementById(valId).textContent = hz.toFixed(2) + ' Hz';
+  document.getElementById(barId).style.width = Math.min(100, hz/2*100) + '%';
+  return hz;
+}
+
+async function thinkOnce(){
+  if(!autopilot || thinkInflight) return;
+  if(!plan.length){ if(!planBusy) makePlan(); return; }   // plan first, then think
+  const now = performance.now();
+  // FREE-RUNNING planner: fires continuously, paced only by its own latency.
+  // Each reply replaces the driver's current mission. Floor prevents hammering;
+  // smart model gets a longer floor (costlier per plan, plans hold up longer).
+  const tmodel = document.getElementById('thinkmodel').value;
+  if(now - lastThinkT < (tmodel === 'gpt-4.1' ? 2000 : 1500)) return;
+  thinkInflight = true;
+  document.getElementById('povstat').textContent = 'planning…';
+  const t0 = now, sensors = readSensors();
+  try{
+    const camOn = document.getElementById('camfeed').checked;
+    // freeze the pose AT CAPTURE TIME — landmark geometry must use where the camera
+    // WAS when the frame was taken, not where the nose points when the reply lands
+    // (session 205719: reply-time pose mislabeled every block; capture-time = 4/4 correct)
+    const cap = {x: state.x, y: state.y, th: state.th};
+    let image = null;
+    if(camOn){
+      povRenderer.render(scene, pov);
+      image = document.getElementById('povcanvas').toDataURL('image/jpeg', .7);
+    }
+    document.querySelector('#pov .cap span').textContent =
+      camOn ? 'rover camera (sent to LLM)' : 'rover camera (local only — NOT sent)';
+    const res = await fetch('/api/sim/think', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({tab: TAB_ID, image, sensors, pose: posePayload(),
+        landmarks_map: landmarkMap.map(k => ({label:k.label, x:Math.round(k.x), y:Math.round(k.y)})),
+        plan_progress: planProgress(), prev_scene: lastScene,
+        map_image: (()=>{ const mi = mapShot(); document.getElementById('aimap').src = mi; return mi; })(),
+        map_grid: (()=>{ const mg = buildMapGrid(); document.getElementById('aigrid').textContent = mg; return mg; })(),
+        current_action: currentSubgoal, action_progress: actionProgress(),
+        plan, step_idx: stepIdx,
+        memory: llmMemory, subgoal: currentSubgoal, driver_status: driverStatus,
+        history: subgoalHistory.slice(-5).map(h => ({...h,
+          s_ago: Math.round((now - h.t)/1000)})),
+        situation: situation(),
+        progress: {turned_deg: Math.round(Math.abs(sgTurnAccum*180/Math.PI)),
+                   advanced_mm: Math.round(sgDistAccum)},
+        events: thinkerEvents.splice(0, thinkerEvents.length).map(e => ({
+          s_ago: Math.round((now - e.t)/1000), type: e.type, detail: e.detail})),
+        guards: document.getElementById('guards').checked,
+        recent_motion: recentMotion(),
+        timing: {                                   // temporal self-awareness
+          think_period_s: thinkTimes.length > 1
+            ? +((thinkTimes[thinkTimes.length-1]-thinkTimes[0])/(thinkTimes.length-1)/1000).toFixed(1) : null,
+          think_latency_s: lastThinkLat,
+          drive_period_s: driveTimes.length > 1
+            ? +((driveTimes[driveTimes.length-1]-driveTimes[0])/(driveTimes.length-1)/1000).toFixed(1) : null},
+        model: tmodel,
+        goal: document.getElementById('goal').value})});
+    const cmd = await res.json();
+    const rt = performance.now() - t0;
+    if(cmd.error){ addLog({isErr:true, errText:cmd.error, rt}); }
+    else if(autopilot){
+      if(cmd.scene) lastScene = cmd.scene;
+      lastThinkLat = +(rt/1000).toFixed(1);
+      // running narrative: observe → assess → decide, per think cycle
+      const st = document.getElementById('story');
+      const stepName = plan[stepIdx] ? `step ${stepIdx+1}: ${plan[stepIdx].step.slice(0,30)}` : 'no plan';
+      const entry = document.createElement('div');
+      entry.style.cssText = 'border-bottom:1px solid rgba(255,255,255,.06); padding:5px 0';
+      entry.innerHTML =
+        `<span style="color:#5f7188; font-size:9.5px">${new Date().toLocaleTimeString().slice(0,8)} · ${esc(stepName)}</span><br>
+         <span style="color:#8fa2b8">👁 ${esc(cmd.observe||'—')}</span><br>
+         <span style="color:#c9b458">🤔 ${esc(cmd.assess||'—')}</span><br>
+         <span style="color:#4ade80">➜ ${esc(cmd.say||cmd.subgoal||'—')}</span>
+         ${cmd.scene ? `<div style="color:#4d5d6e; font-size:9.5px; margin-top:2px">🎞 ${esc(cmd.scene)}</div>` : ''}`;
+      st.prepend(entry);
+      while(st.children.length > 12) st.lastChild.remove();
+      if(currentSubgoal){
+        subgoalHistory.push({subgoal: currentSubgoal, t: sgStartT,
+          outcome: driverStatus==='running' ? 'still running when replaced' : driverStatus});
+        if(subgoalHistory.length > 5) subgoalHistory.shift();
+      }
+      // repetition detector: same subgoal + no displacement = stuck approach
+      const moved = Math.hypot(state.x - lastThinkPose.x, state.y - lastThinkPose.y);
+      const actDesc = (cmd.action && cmd.action.name) ? cmd.action.name + ' ' + JSON.stringify(cmd.action.args||{}) : '';
+      if(actDesc && actDesc === lastSubgoalText && moved < 80) sgRepeat++;
+      else sgRepeat = 0;
+      lastSubgoalText = actDesc; lastThinkPose = {x: state.x, y: state.y};
+      if(sgRepeat >= 6){ sgRepeat = 0; makePlan(); tevent('forced_replan','same subgoal 6x with no progress'); }
+      // FUNCTION-CALL DISPATCH: the thinker commands via action{name,args};
+      // reissuing the same action continues it, a different one replaces it,
+      // no action at all means "carry on"
+      if(cmd.action && cmd.action.name){
+        const desc = cmd.action.name + ' ' + JSON.stringify(cmd.action.args || {});
+        const same = desc === currentSubgoal && driverStatus === 'running';
+        if(!same) startAction(cmd.action);
+        currentSubgoal = desc;
+      }
+      doneWhen = null;
+      document.getElementById('sgtext').textContent = currentSubgoal || '–';
+      document.getElementById('sgdone').textContent = actionProgress();
+      if(cmd.step_done && plan.length){
+        stepDoneTimes[stepIdx] = performance.now();
+        stepIdx = Math.min(stepIdx+1, plan.length);   // == length → all steps done
+        renderPlan();
+        if(stepIdx >= plan.length && !cmd.answer) makePlan();  // exhausted, no result: replan
+      }
+      if(cmd.need_replan) makePlan();
+      if(cmd.memory) llmMemory = cmd.memory;
+      document.getElementById('llmmem').textContent = llmMemory || '(empty)';
+      if(cmd.answer && secretTruth){
+        const ok = String(cmd.answer.number)===String(secretTruth.number) &&
+          String(cmd.answer.color||'').toLowerCase().includes(secretTruth.color);
+        const el = document.getElementById('huntres');
+        el.textContent = ok ? `🎯 CORRECT: ${cmd.answer.number} on ${cmd.answer.color}!`
+                            : `✗ wrong answer: ${cmd.answer.number} on ${cmd.answer.color} — search continues`;
+        el.style.color = ok ? '#4ade80' : '#f87171';
+        tevent(ok ? 'answer_correct' : 'answer_wrong', `${cmd.answer.number} on ${cmd.answer.color}`);
+        if(ok) document.getElementById('auto').click();   // mission accomplished — stop
+      }
+      let lmReports = Array.isArray(cmd.landmarks) ? [...cmd.landmarks] : [];
+      if(cmd.scene){
+        const re = /(red|blue|green|yellow|purple)\s+block[^.;]{0,60}?(\d{2,4})\s*mm[^.;]{0,40}?(?:(-?\d{1,3})\s*(?:deg|degrees)?\s*(left|right)?|bearing\s*(-?\d{1,3}))/gi;
+        let m;
+        while((m = re.exec(cmd.scene))){
+          const color = m[1].toLowerCase();
+          if(lmReports.some(l => String(l.label||'').toLowerCase().includes(color))) continue;
+          let brg = parseFloat(m[3] ?? m[5] ?? 0);
+          if((m[4]||'').toLowerCase() === 'left') brg = -Math.abs(brg);
+          if((m[4]||'').toLowerCase() === 'right') brg = Math.abs(brg);
+          if(Math.abs(brg) <= 60){
+            lmReports.push({label: color+' block', bearing_deg: brg, distance_mm: parseFloat(m[2])});
+            tevent('auto_label', `extracted '${color} block' from scene text (model described it but did not label)`);
+          }
+        }
+      }
+      for(const lm of lmReports){
+        // thinker supplies the LABEL; geometry comes from sensors where possible.
+        // NB: models report bearings image-style (positive = RIGHT) regardless of
+        // stated convention — verified in session 171352 (sign-flip cut placement
+        // error 1352mm -> 362mm). Math below negates into ccw-positive.
+        const mathBrg = -(lm.bearing_deg||0)*Math.PI/180;
+        const wb = cap.th + mathBrg;   // capture-time pose, not reply-time
+        // distance priority: occupancy-ray snap (any bearing) > model guess
+        let useDist = occRayDist(wb, cap.x, cap.y);
+        if(useDist === null) useDist = lm.distance_mm||0;
+        const lx = cap.x + Math.cos(wb)*useDist;
+        const ly = cap.y + Math.sin(wb)*useDist;
+        const label = String(lm.label||'?').slice(0,24);
+        const ex = landmarkMap.find(k => k.label===label || Math.hypot(k.x-lx,k.y-ly)<250);
+        if(ex){
+          // color-conflict guard: a position-merge may only change the color word if
+          // this observation was CLOSER than the one that named it (near looks win)
+          const oldC = colorOf(ex.label), newC = colorOf(label);
+          const closer = (lm.distance_mm||9999) < (ex.obsDist||9999);
+          if(oldC && newC && oldC !== newC && !closer){
+            tevent('label_conflict', `kept "${ex.label}" over farther-look "${label}"`);
+          } else {
+            ex.x=(ex.x+lx)/2; ex.y=(ex.y+ly)/2;
+            ex.label = label;
+            if(closer) ex.obsDist = lm.distance_mm||9999;
+            occLabel(ex.x, ex.y, ex.label);
+          }
+        } else if(landmarkMap.length < 24){
+          landmarkMap.push({label, x:lx, y:ly, obsDist: lm.distance_mm||9999});
+          occLabel(lx, ly, label);
+        }
+      }
+      lastThinkT = performance.now();
+      sessThinks++;
+      markFreq(thinkTimes, 'fbthink', 'fvthink');
+      addLog({kind:'think', cmd, rt, sensors, image});
+    }
+  }catch(e){ addLog({isErr:true, errText:String(e), rt:performance.now()-t0}); }
+  document.getElementById('povstat').textContent = '';
+  thinkInflight = false;
+}
+
+async function driveOnce(){
+  // driver only runs an active mission; after done/blocked it holds until the
+  // free-running thinker delivers the next one (≤ ~2s)
+  if(!autopilot || driveInflight || !currentSubgoal || driverStatus!=='running' || wpActive) return;
+  driveInflight = true;
+  const t0 = performance.now(), sensors = readSensors();
+  try{
+    const res = await fetch('/api/sim/drivefast', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({tab: TAB_ID, sensors, pose: posePayload(),
+        mission: plan[stepIdx] ? `step ${stepIdx+1}/${plan.length}: ${plan[stepIdx].step}` : '',
+        scene: lastScene,
+        subgoal: currentSubgoal, done_when: dwText(doneWhen),
+        guards: document.getElementById('guards').checked,
+        events: collisionEvents.splice(0, collisionEvents.length)})});
+    const cmd = await res.json();
+    const rt = performance.now() - t0;
+    if(cmd.error){ addLog({isErr:true, errText:cmd.error, rt}); }
+    else if(autopilot){
+      targetL = cmd.left; targetR = cmd.right;   // targets — motors slew, not snap
+      // perception missions: cap rotation so the nose can't sweep past the target
+      // during think latency (session 205719: 200-320 deg overshoot between looks)
+      const searching = (doneWhen && doneWhen.field === 'perception') ||
+        (plan[stepIdx] && (plan[stepIdx].check||{}).type === 'landmark_known');
+      if(searching){
+        const gap = thinkTimes.length > 1
+          ? (thinkTimes[thinkTimes.length-1]-thinkTimes[0])/(thinkTimes.length-1) : 4000;
+        const omega = (50*Math.PI/180) / (gap/1000);          // ≤50° per look
+        const cap = Math.max(0.03, Math.min(0.09, omega*BASE/(2*MAXV)));
+        targetL = Math.max(-cap, Math.min(cap, targetL));
+        targetR = Math.max(-cap, Math.min(cap, targetR));
+      }
+      lastDriveCmdT = performance.now();   // feeds the motor watchdog
+      sessCmds++;
+      document.getElementById('hlat').textContent = Math.round(rt);
+      const hz = markFreq(driveTimes, 'fbdrive', 'fvdrive');
+      document.getElementById('hhz').textContent = hz.toFixed(2);
+      if(hz > 0.05) drivePeriodS = 1/hz;   // slew rate tracks real loop frequency
+      if(cmd.done || cmd.blocked){
+        driverStatus = cmd.done ? 'done' : 'blocked';
+        if(cmd.blocked) tevent('driver_blocked', `"${currentSubgoal}" — ${cmd.say||''}`);
+        stopMotors();     // hold; next thinker firing delivers a new mission
+      }
+      document.getElementById('sgstat').textContent = 'driver: ' + (cmd.done?'done ✓':cmd.blocked?'blocked ⛔':'running');
+      addLog({kind:'drive', cmd, rt, sensors});
+    }
+  }catch(e){ addLog({isErr:true, errText:String(e), rt:performance.now()-t0}); }
+  driveInflight = false;
+}
+
+// both loops are latency-bound (guards prevent overlap); driver runs hot,
+// thinker only when due (new plan needed or THINK_MAX_AGE elapsed)
+setInterval(thinkOnce, 250);
+// LLM driver retired — motion primitives execute in step(); driveOnce kept for reference
+
+// session accounting (baselines captured at autopilot start)
+let sessCmds=0, sessThinks=0, sessStart=0, sessBase={in:0,out:0,cost:0};
+
+document.getElementById('auto').onclick = async e=>{
+  autopilot = !autopilot;
+  e.target.classList.toggle('on', autopilot);
+  e.target.textContent = autopilot ? '■ Stop autopilot' : '▶ Start autopilot';
+  document.getElementById('hmode').textContent = autopilot ? 'split-brain auto' : 'manual';
+  if(autopilot){
+    collisionCount=0; collisionEvents.length=0; sessCmds=0; sessThinks=0;
+    currentSubgoal=''; doneWhen=null; driverStatus='(starting)'; lastThinkT=0;
+    plan=[]; stepIdx=0; renderPlan();   // fresh plan per mission
+    thinkTimes.length=0; driveTimes.length=0;
+    sessStart=performance.now(); sessBase={in:totIn,out:totOut,cost:totCost};
+    fetch('/api/session/start', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({tab: TAB_ID, goal: document.getElementById('goal').value,
+        guards: document.getElementById('guards').checked,
+        secret: secretTruth})});
+  } else {
+    stopMotors();
+    fetch('/api/session/end', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({summary:{
+        duration_s: +((performance.now()-sessStart)/1000).toFixed(1),
+        drive_cmds: sessCmds, think_cmds: sessThinks, collisions: collisionCount,
+        tokens_in: totIn-sessBase.in, tokens_out: totOut-sessBase.out,
+        cost_usd: +(totCost-sessBase.cost).toFixed(6)}})});
+  }
+};
+document.getElementById('reset').onclick = ()=>{
+  state.x=0; state.y=0; state.th=0; stopMotors();
+  camPan=0; llmMemory=''; subgoalHistory.length=0;
+  currentSubgoal=''; doneWhen=null; driverStatus='(starting)'; lastThinkT=0;
+  sgTurnAccum=0; sgDistAccum=0; recoilUntil=0;
+  plan.length=0; stepIdx=0; renderPlan();
+  lastScene=''; for(const k in stepDoneTimes) delete stepDoneTimes[k];
+  wpActive=false; wpList=[]; wpIdx=0; activeAction=null; poiMap.length=0;
+  collisionCount=0; collisionEvents.length=0; stuckTime=0;
+  landmarkMap.length=0; trail.length=0;
+  occupancy.clear(); collisionMarks.length=0;
+  assignSecret();   // new random block + number every reset
+  if(isHuntGoal(document.getElementById('goal').value))
+    document.getElementById('goal').value = huntGoal(secretTruth.color);  // re-aim at new target
+  document.getElementById('huntres').textContent='';
+  document.getElementById('llmmem').textContent='(empty)';
+  document.getElementById('sgtext').textContent='–';
+  document.getElementById('sgdone').textContent='';
+  document.getElementById('sgstat').textContent='';
+};
+
+// ================= parts panel =================
+fetch('/api/project').then(r=>r.json()).then(p=>{
+  const el = document.getElementById('parts');
+  (p.parts||[]).forEach(pt=>{
+    const d = document.createElement('div');
+    d.className='part';
+    d.innerHTML = `<span>${pt.qty}× ${pt.name}</span><span class="st">${pt.status}</span>`;
+    el.appendChild(d);
+  });
+  document.getElementById('llmstat').textContent =
+    p.llm_key ? 'LLM key: found ✓' : '⚠ no OPENAI_API_KEY found';
+});
+
+// ================= main loop =================
+chase.position.set(-500,-700,600);
+controls.target.set(0,0,50);
+// live sensors panel (throttled)
+setInterval(()=>{
+  document.getElementById('sensors').textContent = JSON.stringify(readSensors(), null, 1);
+}, 250);
+
+// mind's-eye snapshot for the THINKER: its own discovered map, coordinate-gridded
+// so it can plot waypoints in map-mm. Light theme + labels for VLM readability.
+const mapShotCanvas = document.createElement('canvas');
+mapShotCanvas.width = mapShotCanvas.height = 512;
+function buildMapGrid(){
+  const N = 24, CELL = 100;
+  const rows = Array.from({length:N}, () => Array(N).fill('.'));
+  const put = (x, y, ch) => {
+    const c = Math.floor((x+1200)/CELL), r = Math.floor((1200-y)/CELL);
+    if(c>=0 && c<N && r>=0 && r<N) rows[r][c] = ch;
+  };
+  for(const cc of occupancy.values()) put(cc.x, cc.y, '#');
+  const legend = [];
+  for(const k of landmarkMap){
+    const ch = (k.label[0]||'?').toUpperCase();
+    put(k.x, k.y, ch);
+    legend.push(`${ch}=${k.label}(${Math.round(k.x)},${Math.round(k.y)})`);
+  }
+  for(const k of poiMap){
+    const ch = (k.label[0]||'p').toLowerCase();
+    put(k.x, k.y, ch);
+    legend.push(`${ch}=POI:${k.label}(${Math.round(k.x)},${Math.round(k.y)})`);
+  }
+  put(state.x, state.y, '@');
+  return rows.map(r => r.join('')).join('\n') + '\n' + (legend.join(' ') || '(nothing labeled yet)');
+}
+
+function mapShot(){
+  const g = mapShotCanvas.getContext('2d'), S = 512, sc = S*0.82/ARENA, cx = S/2, cy = S/2;
+  const X = x => cx + x*sc, Y = y => cy - y*sc;
+  g.fillStyle = '#ffffff'; g.fillRect(0,0,S,S);
+  g.strokeStyle = '#cccccc'; g.fillStyle = '#888'; g.font = '9px monospace'; g.lineWidth = 1;
+  for(let v = -1200; v <= 1200; v += 600){
+    g.beginPath(); g.moveTo(X(v), Y(-1200)); g.lineTo(X(v), Y(1200)); g.stroke();
+    g.beginPath(); g.moveTo(X(-1200), Y(v)); g.lineTo(X(1200), Y(v)); g.stroke();
+    g.fillText(String(v), X(v)-10, Y(-1200)+10);
+    g.fillText(String(v), X(-1200)-2, Y(v)+3);
+  }
+  g.strokeStyle = '#333'; g.strokeRect(X(-1200), Y(1200), 2400*sc, 2400*sc);
+  g.fillStyle = '#555';
+  for(const c of occupancy.values()) g.fillRect(X(c.x)-2.5, Y(c.y)-2.5, 5, 5);
+  g.font = 'bold 10px monospace';
+  for(const k of landmarkMap){
+    g.fillStyle = '#c05000'; g.beginPath(); g.arc(X(k.x), Y(k.y), 4, 0, 7); g.fill();
+    g.fillText(`${k.label}(${Math.round(k.x)},${Math.round(k.y)})`, X(k.x)+6, Y(k.y)+3);
+  }
+  g.strokeStyle = '#7aa5ff'; g.beginPath();
+  trail.forEach((pt,i)=> i ? g.lineTo(X(pt[0]),Y(pt[1])) : g.moveTo(X(pt[0]),Y(pt[1]))); g.stroke();
+  g.fillStyle = '#1d4ed8'; g.font = 'bold 11px monospace';
+  for(const k of poiMap){
+    g.beginPath();
+    g.moveTo(X(k.x),Y(k.y)-5); g.lineTo(X(k.x)+5,Y(k.y)); g.lineTo(X(k.x),Y(k.y)+5); g.lineTo(X(k.x)-5,Y(k.y));
+    g.closePath(); g.fill();
+    g.fillText(`${k.label}(${Math.round(k.x)},${Math.round(k.y)})`, X(k.x)+7, Y(k.y)+4);
+  }
+  if(wpActive) for(let i=wpIdx; i<wpList.length; i++){
+    g.fillStyle = '#e07000'; g.beginPath(); g.arc(X(wpList[i].x), Y(wpList[i].y), 5, 0, 7); g.fill();
+    g.fillStyle = '#000'; g.fillText(String(i+1), X(wpList[i].x)-3, Y(wpList[i].y)+3);
+  }
+  g.fillStyle = 'rgba(10,143,47,0.12)';
+  for(let i=0;i<36;i++) if(viewCov[i]){
+    g.beginPath(); g.moveTo(X(state.x),Y(state.y));
+    g.arc(X(state.x),Y(state.y), 500*sc, -(i*10+10)*Math.PI/180, -(i*10)*Math.PI/180);
+    g.closePath(); g.fill();
+  }
+  g.save(); g.translate(X(state.x), Y(state.y)); g.rotate(-state.th);
+  g.fillStyle = '#0a8f2f'; g.beginPath();
+  g.moveTo(12,0); g.lineTo(-7,7); g.lineTo(-7,-7); g.closePath(); g.fill(); g.restore();
+  g.fillStyle = '#0a8f2f'; g.font = 'bold 10px monospace';
+  g.fillText(`YOU(${Math.round(state.x)},${Math.round(state.y)}) h=${Math.round(((state.th*180/Math.PI)%360+360)%360)}`, 6, 14);
+  return mapShotCanvas.toDataURL('image/png');
+}
+
+// mind map: the robot's internal world model — trail + landmarks IT labeled.
+// Deliberately does NOT draw the real obstacles; gaps here = things it hasn't learned.
+const mmc = document.getElementById('mindmap').getContext('2d');
+function drawMind(){
+  const S=200, sc=S*0.88/ARENA, cx=S/2, cy=S/2;
+  const X=x=>cx+x*sc, Y=y=>cy-y*sc;
+  mmc.fillStyle='#0d1116'; mmc.fillRect(0,0,S,S);
+  mmc.strokeStyle='#2a3340'; mmc.strokeRect(X(-ARENA/2), Y(ARENA/2), ARENA*sc, ARENA*sc);
+  // occupancy: geometry the sonar has painted — the map builds itself as it drives
+  for(const c of occupancy.values()){
+    mmc.fillStyle = c.hits > 3 ? 'rgba(148,163,184,.85)' : 'rgba(148,163,184,.35)';
+    mmc.fillRect(X(c.x)-1, Y(c.y)-1, 2.4, 2.4);
+  }
+  // collision marks
+  mmc.strokeStyle='#f87171'; mmc.lineWidth=1;
+  for(const p of collisionMarks){
+    mmc.beginPath();
+    mmc.moveTo(X(p[0])-3,Y(p[1])-3); mmc.lineTo(X(p[0])+3,Y(p[1])+3);
+    mmc.moveTo(X(p[0])-3,Y(p[1])+3); mmc.lineTo(X(p[0])+3,Y(p[1])-3);
+    mmc.stroke();
+  }
+  // searched-direction fan (what the camera has covered from the current spot)
+  mmc.fillStyle='rgba(74,222,128,.10)';
+  for(let i=0;i<36;i++) if(viewCov[i]){
+    mmc.beginPath(); mmc.moveTo(X(state.x),Y(state.y));
+    mmc.arc(X(state.x),Y(state.y), 300*sc*8, -(i*10+10)*Math.PI/180, -(i*10)*Math.PI/180);
+    mmc.closePath(); mmc.fill();
+  }
+  mmc.strokeStyle='rgba(59,130,246,.55)'; mmc.lineWidth=1.5; mmc.beginPath();
+  trail.forEach((p,i)=> i ? mmc.lineTo(X(p[0]),Y(p[1])) : mmc.moveTo(X(p[0]),Y(p[1])));
+  mmc.stroke();
+  mmc.font='8px -apple-system';
+  for(const k of landmarkMap){
+    mmc.fillStyle='#f2a93b'; mmc.beginPath(); mmc.arc(X(k.x),Y(k.y),3,0,7); mmc.fill();
+    mmc.fillStyle='#c9d3e0'; mmc.fillText(k.label.slice(0,14), X(k.x)+5, Y(k.y)+3);
+  }
+  if(wpActive){
+    mmc.strokeStyle='#e07000'; mmc.fillStyle='#e07000'; mmc.beginPath();
+    mmc.moveTo(X(state.x),Y(state.y));
+    for(let i=wpIdx;i<wpList.length;i++) mmc.lineTo(X(wpList[i].x),Y(wpList[i].y));
+    mmc.stroke();
+    for(let i=wpIdx;i<wpList.length;i++){ mmc.beginPath(); mmc.arc(X(wpList[i].x),Y(wpList[i].y),2.5,0,7); mmc.fill(); }
+  }
+  mmc.fillStyle='#60a5fa'; mmc.font='7px -apple-system';
+  for(const k of poiMap){
+    mmc.beginPath();
+    mmc.moveTo(X(k.x),Y(k.y)-4); mmc.lineTo(X(k.x)+4,Y(k.y)); mmc.lineTo(X(k.x),Y(k.y)+4); mmc.lineTo(X(k.x)-4,Y(k.y));
+    mmc.closePath(); mmc.fill();
+    mmc.fillText(k.label.slice(0,10), X(k.x)+5, Y(k.y)+2);
+  }
+  mmc.save(); mmc.translate(X(state.x),Y(state.y)); mmc.rotate(-state.th);
+  mmc.fillStyle='#4ade80'; mmc.beginPath();
+  mmc.moveTo(7,0); mmc.lineTo(-4,4.5); mmc.lineTo(-4,-4.5); mmc.closePath(); mmc.fill();
+  mmc.restore();
+}
+setInterval(drawMind, 250);
+// directed hunt: the goal NAMES the target block (random each round) — the rover
+// must navigate to that specific block and get behind it, not wander all of them
+const huntGoal = color =>
+  `Find the number painted on the ${color.toUpperCase()} block. It is on the face turned AWAY from the arena center, so you must go around behind the ${color} block to see it. Navigate there directly and investigate. When you can actually READ the number in the camera image, reply with "answer": {"number": <n>, "color": "${color}"}. Never guess.`;
+const isHuntGoal = t => /^Find the number painted on the/.test(t||'');
+document.getElementById('huntbtn').onclick = ()=>{
+  document.getElementById('goal').value = huntGoal(secretTruth.color);
+  document.getElementById('huntres').textContent = `goal set — target: the ${secretTruth.color} block`;
+  document.getElementById('huntres').style.color = '#8fa2b8';
+};
+// ---------- settings: bring-your-own API key ----------
+async function refreshKeyStat(){
+  try{
+    const st = await (await fetch('/api/settings')).json();
+    const el = document.getElementById('keystat');
+    if(st.key_set){ el.textContent = `key set ✓ (${st.key_hint}, from ${st.source})`; el.style.color = '#4ade80'; }
+    else {
+      el.textContent = '⚠ no key — the LLM layers cannot run until you add one';
+      el.style.color = '#f2a93b';
+      document.getElementById('settingsbox').open = true;
+    }
+  }catch(e){}
+}
+document.getElementById('savekey').onclick = async ()=>{
+  await fetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({openai_api_key: document.getElementById('apikey').value})});
+  document.getElementById('apikey').value = '';
+  refreshKeyStat();
+};
+refreshKeyStat();
+
+// the directed hunt IS the default mission — set on load, no 🎯 click needed
+document.getElementById('goal').value = huntGoal(secretTruth.color);
+document.getElementById('huntres').textContent = `default goal: find the number on the ${secretTruth.color} block`;
+document.getElementById('huntres').style.color = '#8fa2b8';
+setInterval(async ()=>{
+  try{
+    const u = await (await fetch('/api/usage')).json();
+    document.getElementById('usage').textContent =
+      `lab lifetime: ${(u.tokens_in/1e6).toFixed(2)}M in / ${(u.tokens_out/1e3).toFixed(1)}k out · $${u.cost_usd.toFixed(4)} · ${u.calls} calls`;
+  }catch(e){}
+}, 10000);
+
+let frameErrs = 0;
+function reportJsError(where, err){
+  frameErrs++;
+  const el = document.getElementById('jserr');
+  el.style.display = 'block';
+  el.textContent = `⚠ JS error in ${where} (${frameErrs}x): ${String(err && err.message || err).slice(0,180)}`;
+  try{ tevent('js_error', `${where}: ${String(err && err.stack || err).slice(0,250)}`); }catch(e){}
+  if(frameErrs > 200){ stopMotors(); }   // runaway guard
+}
+window.addEventListener('error', e => reportJsError('window', e.error || e.message));
+(function animate(){
+  requestAnimationFrame(animate);        // reschedule FIRST — a throw can never kill the loop
+  try{
+    manualDrive();
+    step();
+  // chase camera follows only if locked to rover
+  if(document.getElementById('followcam').checked)
+    controls.target.lerp(new THREE.Vector3(state.x,state.y,50), .04);
+    controls.update();
+    renderer.render(scene, chase);
+    povRenderer.render(scene, pov);
+  }catch(err){ reportJsError('frame loop', err); }
+})();
+addEventListener('resize', ()=>{ chase.aspect=innerWidth/innerHeight;
+  chase.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); });
+</script>
+</body>
+</html>

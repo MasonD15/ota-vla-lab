@@ -1,0 +1,8 @@
+config.json
+usage.json
+state.json
+projects/*/sessions/
+projects/*/snapshots/
+projects/*/exports/
+nohup.out
+.DS_Store

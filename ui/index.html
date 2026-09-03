@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Robotics Lab</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { height:100%; overflow:hidden; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+  #app { position:fixed; inset:0; background:#0d1015; }
+  canvas { display:block; }
+  .panel { background:rgba(19,23,31,.9); backdrop-filter:blur(12px);
+    border:1px solid rgba(255,255,255,.08); border-radius:12px; color:#c9d3e0; }
+
+  #side { position:absolute; top:14px; left:14px; z-index:10; width:230px;
+    padding:14px 14px 10px; font-size:12.5px; }
+  #side h1 { font-size:13px; color:#fff; margin-bottom:2px; }
+  #side .sub { font-size:10.5px; color:#5f7188; margin-bottom:10px; }
+  #side h2 { font-size:10px; text-transform:uppercase; letter-spacing:.08em;
+    color:#6b7a8d; margin:10px 0 6px; }
+  .mrow { display:flex; align-items:center; gap:8px; padding:5px 6px; border-radius:7px; cursor:pointer; }
+  .mrow:hover { background:rgba(255,255,255,.05); }
+  .mrow input { accent-color:#3b82f6; }
+  .mrow .dot { width:10px; height:10px; border-radius:3px; flex:none; }
+  .mrow .nm { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #dims { font-size:11.5px; color:#8fa2b8; line-height:1.7; padding:4px 6px; }
+  #dims b { color:#e7edf5; }
+
+  #claude { position:absolute; bottom:14px; left:14px; z-index:10; width:300px; padding:14px; }
+  #claude h2 { font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:#6b7a8d; margin-bottom:8px; }
+  #note { width:100%; height:56px; resize:none; background:#0d1116; color:#dfe7f0;
+    border:1px solid rgba(255,255,255,.12); border-radius:8px; padding:8px; font-size:12px;
+    font-family:inherit; }
+  #note:focus { outline:none; border-color:#3b82f6; }
+  #send { margin-top:8px; width:100%; padding:10px; border:none; border-radius:8px;
+    background:#3b82f6; color:#fff; font-weight:700; font-size:12.5px; cursor:pointer; }
+  #send:hover { background:#2f6fd6; }
+  #send.ok { background:#16a34a; }
+  #sendmsg { font-size:11px; color:#5f7188; margin-top:6px; min-height:14px; }
+
+  #hint { position:absolute; bottom:14px; right:14px; z-index:10; color:#4d5d6e;
+    font-size:11px; text-align:right; line-height:1.7; }
+  #live { position:absolute; top:14px; right:14px; z-index:10; padding:7px 12px;
+    font-size:11px; color:#22c55e; display:flex; gap:7px; align-items:center; }
+  #live .pip { width:7px; height:7px; border-radius:50%; background:#22c55e;
+    animation:pulse 2s infinite; }
+  @keyframes pulse { 50% { opacity:.3; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="side" class="panel">
+    <h1>Robotics Lab</h1>
+    <div class="sub">local design environment · v2</div>
+    <h2>Project</h2>
+    <div style="display:flex; gap:6px; margin-bottom:4px">
+      <select id="proj" style="flex:1; background:#0d1116; color:#dfe7f0; border:1px solid rgba(255,255,255,.12); border-radius:7px; padding:6px; font-size:12px"></select>
+      <button id="newproj" style="padding:6px 10px; border:none; border-radius:7px; background:#26303f; color:#dfe7f0; cursor:pointer">+</button>
+    </div>
+    <a href="/sim.html" style="display:block; margin:6px 0 2px; color:#3b82f6; text-decoration:none; font-size:12px; font-weight:600">🎮 Open Sim Harness →</a>
+    <h2>Models <span style="color:#3d4a58">(models/ dir)</span></h2>
+    <div id="mlist"></div>
+    <h2>Selected dimensions</h2>
+    <div id="dims">–</div>
+  </div>
+
+  <div id="live" class="panel"><span class="pip"></span>watching for changes</div>
+
+  <div id="claude" class="panel">
+    <h2>Send view to Claude</h2>
+    <textarea id="note" placeholder="Feedback for Claude… e.g. 'make the deck 20mm longer, the camera mast looks too thin'"></textarea>
+    <button id="send">📸 Snapshot + note → Claude</button>
+    <div id="sendmsg"></div>
+  </div>
+
+  <div id="hint">drag · orbit&nbsp;&nbsp;|&nbsp;&nbsp;scroll · zoom&nbsp;&nbsp;|&nbsp;&nbsp;right-drag · pan<br>grid = Neptune 5 Max bed (420mm)</div>
+</div>
+
+<script src="lib/three.min.js"></script>
+<script src="lib/OrbitControls.js"></script>
+<script src="lib/STLLoader.js"></script>
+<script>
+// ---------- scene ----------
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0d1015);
+const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 1, 6000);
+camera.up.set(0,0,1);
+const renderer = new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true});
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+document.getElementById('app').prepend(renderer.domElement);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.dampingFactor = 0.08;
+
+scene.add(new THREE.AmbientLight(0xffffff, .55));
+const key = new THREE.DirectionalLight(0xffffff, .9); key.position.set(200,-180,300); scene.add(key);
+const fill = new THREE.DirectionalLight(0x88aaff, .3); fill.position.set(-150,150,100); scene.add(fill);
+
+const grid = new THREE.GridHelper(420, 42, 0x2a3340, 0x191f28);
+grid.rotation.x = Math.PI/2; scene.add(grid);
+
+camera.position.set(320,-340,260); controls.target.set(0,0,20);
+
+// ---------- model management ----------
+const palette = [0x8d939c, 0xf2a93b, 0x4ade80, 0x60a5fa, 0xf472b6, 0xa78bfa, 0xfacc15];
+const loader = new THREE.STLLoader();
+const models = new Map();   // name -> {mesh, visible, mtime, color}
+
+async function api(path, opts){ return (await fetch(path, opts)).json(); }
+
+function fitView(){
+  const box = new THREE.Box3();
+  let any=false;
+  models.forEach(m => { if(m.visible && m.mesh){ box.expandByObject(m.mesh); any=true; } });
+  if(!any) return;
+  const c = box.getCenter(new THREE.Vector3());
+  controls.target.copy(c);
+}
+
+function loadModel(name, mtime, keepColor){
+  const url = `/models/${name}?t=${mtime}`;
+  loader.load(url, geo => {
+    geo.computeVertexNormals();
+    const prev = models.get(name);
+    const color = keepColor ?? palette[models.size % palette.length];
+    const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({color, roughness:.7, metalness:.1}));
+    if(prev && prev.mesh) scene.remove(prev.mesh);
+    scene.add(mesh);
+    models.set(name, {mesh, visible: prev ? prev.visible : true, mtime, color});
+    mesh.visible = prev ? prev.visible : true;
+    renderList(); updateDims();
+    if(!prev) fitView();
+  });
+}
+
+async function refreshModels(){
+  const list = await api('/api/models');
+  for(const f of list){
+    const cur = models.get(f.name);
+    if(!cur) loadModel(f.name, f.mtime);
+    else if(f.mtime > cur.mtime) loadModel(f.name, f.mtime, cur.color);  // live reload!
+  }
+  for(const name of [...models.keys()])
+    if(!list.find(f => f.name === name)){ scene.remove(models.get(name).mesh); models.delete(name); renderList(); }
+}
+
+function renderList(){
+  const el = document.getElementById('mlist');
+  el.innerHTML = '';
+  models.forEach((m, name) => {
+    const row = document.createElement('label');
+    row.className = 'mrow';
+    row.innerHTML = `<input type="checkbox" ${m.visible?'checked':''}>
+      <span class="dot" style="background:#${m.color.toString(16).padStart(6,'0')}"></span>
+      <span class="nm">${name}</span>
+      <button class="exp" title="Export STEP" style="border:none;background:#26303f;color:#9fb0c3;border-radius:5px;padding:2px 7px;font-size:10px;cursor:pointer">STP</button>`;
+    row.querySelector('input').onchange = e => {
+      m.visible = e.target.checked; if(m.mesh) m.mesh.visible = m.visible; updateDims();
+    };
+    row.querySelector('.exp').onclick = async e => {
+      e.preventDefault();
+      e.target.textContent = '…';
+      const r = await api('/api/export', {method:'POST',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({model:name})});
+      e.target.textContent = r.ok ? '✓' : '✗';
+      document.getElementById('sendmsg').textContent =
+        r.ok ? `exported → ${r.file}` : `export failed: ${r.error}`;
+      setTimeout(()=>{ e.target.textContent='STP'; }, 3000);
+    };
+    el.appendChild(row);
+  });
+}
+
+function updateDims(){
+  const box = new THREE.Box3(); let any=false;
+  models.forEach(m => { if(m.visible && m.mesh){ box.expandByObject(m.mesh); any=true; } });
+  const el = document.getElementById('dims');
+  if(!any){ el.textContent = '–'; return; }
+  const s = box.getSize(new THREE.Vector3());
+  el.innerHTML = `X <b>${s.x.toFixed(1)}</b> mm<br>Y <b>${s.y.toFixed(1)}</b> mm<br>Z <b>${s.z.toFixed(1)}</b> mm`;
+}
+
+// ---------- projects ----------
+async function loadProjects(){
+  const ps = await api('/api/projects');
+  const sel = document.getElementById('proj');
+  sel.innerHTML = '';
+  ps.forEach(p => {
+    const o = document.createElement('option');
+    o.value = p.name; o.textContent = `${p.name} (${p.models})`;
+    if(p.active) o.selected = true;
+    sel.appendChild(o);
+  });
+}
+document.getElementById('proj').onchange = async e => {
+  await api('/api/projects/open', {method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({name:e.target.value})});
+  models.forEach(m => scene.remove(m.mesh));
+  models.clear(); renderList(); updateDims();
+  refreshModels(); loadProjects();
+};
+document.getElementById('newproj').onclick = async () => {
+  const name = prompt('New project name (letters/numbers/dashes):');
+  if(!name) return;
+  await api('/api/projects', {method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({name})});
+  models.forEach(m => scene.remove(m.mesh));
+  models.clear(); renderList(); updateDims();
+  refreshModels(); loadProjects();
+};
+loadProjects();
+
+// live-reload poll
+refreshModels();
+setInterval(refreshModels, 2000);
+
+// ---------- send to Claude ----------
+document.getElementById('send').onclick = async () => {
+  renderer.render(scene, camera);                       // fresh frame
+  const image = renderer.domElement.toDataURL('image/png');
+  const note = document.getElementById('note').value;
+  const visible = [...models.entries()].filter(([,m])=>m.visible).map(([n])=>n);
+  const res = await api('/api/snapshot', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({image, note, models: visible,
+      camera:{pos:camera.position.toArray().map(v=>+v.toFixed(1)),
+              target:controls.target.toArray().map(v=>+v.toFixed(1))}})
+  });
+  const btn = document.getElementById('send'), msg = document.getElementById('sendmsg');
+  if(res.ok){
+    btn.classList.add('ok'); btn.textContent = '✓ Saved for Claude';
+    msg.textContent = `snapshots/${res.saved[0]} — tell Claude to check snapshots`;
+    document.getElementById('note').value = '';
+    setTimeout(()=>{ btn.classList.remove('ok'); btn.textContent='📸 Snapshot + note → Claude'; }, 2500);
+  } else msg.textContent = 'error saving';
+};
+
+// ---------- loop ----------
+(function animate(){
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+})();
+addEventListener('resize', ()=>{ camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); });
+</script>
+</body>
+</html>

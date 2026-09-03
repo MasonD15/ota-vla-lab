@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>vision test shots</title>
+<style>body{margin:0;background:#000}</style></head>
+<body>
+<script src="lib/three.min.js"></script>
+<script>
+// Deterministic vision-benchmark scene: same materials/lighting as the sim.
+// Ground truth is FIXED: number 7 on the RED block's away-face (west, since red
+// is at x=-600 and |x|>|y| with x<0 → the -x face points away from origin).
+const q = new URLSearchParams(location.search);
+const SHOT = parseInt(q.get('shot') || '1');
+const RW = parseInt(q.get('w') || '320'), RH = parseInt(q.get('h') || '240');
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x11151c);
+scene.fog = new THREE.Fog(0x11151c, 1500, 3200);
+scene.add(new THREE.AmbientLight(0xffffff,.75));
+const sun = new THREE.DirectionalLight(0xffffff,.8); sun.position.set(500,-400,800); scene.add(sun);
+
+const ARENA=2400;
+const fc=document.createElement('canvas'); fc.width=fc.height=600;
+const fx=fc.getContext('2d'); const tp=600/12;
+for(let i=0;i<12;i++)for(let j=0;j<12;j++){ fx.fillStyle=(i+j)%2?'#39465a':'#242d3a'; fx.fillRect(i*tp,j*tp,tp,tp); }
+scene.add(new THREE.Mesh(new THREE.PlaneGeometry(ARENA,ARENA),
+  new THREE.MeshStandardMaterial({map:new THREE.CanvasTexture(fc),roughness:.95})));
+
+const wcv=document.createElement('canvas'); wcv.width=256; wcv.height=64;
+const wx=wcv.getContext('2d'); wx.fillStyle='#3d4a5e'; wx.fillRect(0,0,256,64);
+wx.fillStyle='#55688a'; wx.fillRect(0,0,64,64); wx.fillRect(128,0,64,64);
+wx.fillStyle='#d9832b'; wx.fillRect(0,0,256,10);
+const wt=new THREE.CanvasTexture(wcv); wt.wrapS=THREE.RepeatWrapping; wt.repeat.set(6,1);
+const wallMat=new THREE.MeshStandardMaterial({map:wt,roughness:.8});
+function box(x,y,w,d,h,mat){ const m=new THREE.Mesh(new THREE.BoxGeometry(w,d,h),mat);
+  m.position.set(x,y,h/2); scene.add(m); return m; }
+const W=30;
+box(0, ARENA/2, ARENA, W, 220, wallMat); box(0,-ARENA/2, ARENA, W, 220, wallMat);
+box( ARENA/2,0, W, ARENA, 220, wallMat); box(-ARENA/2,0, W, ARENA, 220, wallMat);
+
+const plain=c=>new THREE.MeshStandardMaterial({color:c,roughness:.7});
+const BLOCKS=[
+  {name:'red',   c:0xe03030, s:[-600,300,220,220,200]},
+  {name:'blue',  c:0x2f6fe0, s:[500,-450,260,180,160]},
+  {name:'green', c:0x2fb14c, s:[200,550,180,260,240]},
+  {name:'yellow',c:0xe6b422, s:[-350,-650,240,240,180]},
+  {name:'purple',c:0x9a4bdc, s:[750,500,200,200,220]},
+];
+function digitSign(hex, digit, px, py, pz, nx, ny, size){
+  const cnv=document.createElement('canvas'); cnv.width=cnv.height=256;
+  const c2=cnv.getContext('2d');
+  c2.fillStyle=hex; c2.fillRect(0,0,256,256);
+  c2.fillStyle='#fff'; c2.font='bold 190px -apple-system';
+  c2.textAlign='center'; c2.textBaseline='middle'; c2.fillText(digit,128,140);
+  const m=new THREE.Mesh(new THREE.PlaneGeometry(size,size),
+    new THREE.MeshStandardMaterial({map:new THREE.CanvasTexture(cnv),roughness:.7}));
+  m.position.set(px,py,pz); m.up.set(0,0,1); m.lookAt(px+nx,py+ny,pz);
+  scene.add(m); return m;
+}
+BLOCKS.forEach(b=>box(b.s[0],b.s[1],b.s[2],b.s[3],b.s[4],plain(b.c)));
+digitSign('#e03030','7', -600-112, 300, 100, -1, 0, 170);   // red -x face
+digitSign('#2fb14c','4', 200, 550+132, 120, 0, 1, 150);     // green +y face
+
+// shot table: [camX,camY,camZ, lookX,lookY,lookZ]
+const SHOTS = {
+  1:[ 100, 300,150, -600, 300,110],   // red block, plain east face, ~700mm
+  2:[-1150, 300,150, -600, 300,110],  // red NUMBER face straight-on ~550mm
+  3:[-1100, -80,150, -600, 300,110],  // red number face at an angle
+  4:[ 500, 250,150,  500,-450, 90],   // blue from north ~700mm
+  5:[ 200,-350,150,  200, 550,120],   // green from south ~900mm
+  6:[ -60,-100,220,  600,-500,100],   // two blocks (blue + purple-ish view)
+  7:[   0,   0,420,  700, 400,100],   // overview several blocks
+  8:[   0, 780,150,    0,1200,110],   // wall close-up (stripes + orange band)
+  9:[ 200,1120,150,  200, 550,120],   // green NUMBER (+y face) straight-on
+};
+const s = SHOTS[SHOT];
+const cam = new THREE.PerspectiveCamera(70, RW/RH, 5, 5000);
+cam.up.set(0,0,1);
+cam.position.set(s[0],s[1],s[2]); cam.lookAt(s[3],s[4],s[5]);
+const renderer = new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true});
+renderer.setSize(RW,RH);
+document.body.appendChild(renderer.domElement);
+renderer.render(scene,cam);
+setTimeout(()=>renderer.render(scene,cam), 300);  // belt & suspenders for headless
+</script>
+</body>
+</html>
