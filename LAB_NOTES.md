@@ -1,5 +1,25 @@
 # Robotics Lab — Feature & Performance Notebook
 
+## 2026-09-03 — Path abandonment decoded + arena doubled (Mason)
+**Why paths died 1-2 points in (Mason's question):** "same action = continue"
+compared action JSON VERBATIM. Re-emitting a byte-identical 6-point waypoint array
+is nearly impossible, and models won't omit a field the schema displays — so
+nearly every think during a path unintentionally REPLACED it. Paths lived about
+one think-cycle (~2 points).
+**Fixes:** first-class `continue {}` action (explicit, cheap carry-on — models
+prefer emitting something over omitting); prompt: while a path reports progress,
+continue unless you state a reason; `path_abandoned` mirror event whenever a
+running path is replaced before its last point ("abandoned at 2/9 — replaced by
+turn; if not deliberate, use continue").
+**Arena x2 (Mason):** 4.8m square, blocks same size, positions spread with ≥800mm
+wall buffer (the corridor-trap class of geometry is gone). Ripple updates: fog +
+camera far planes, waypoint/mark clamps ±2300, occupancy cap 12k cells, radar
+unscanned sentinel 3000→6000 (real cells can now be >3000 away), map grid 24x200mm
+cells, mapShot extents ARENA-derived. Sonar max range kept at 3000mm (realistic
+HC-SR04-ish) — in the big arena the rover genuinely cannot see far walls until it
+approaches: exploration now matters.
+
+
 ## 2026-09-03 — Session 081852 (250s, failed): the corridor contradiction + self-written checks
 **The long fruitless run decoded:** yellow sat near the south wall; its away-face
 opens into a ~430mm corridor. The waypoint CLAMP (≥450mm from block centers) and

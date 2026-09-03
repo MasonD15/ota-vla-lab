@@ -190,9 +190,9 @@ window.addEventListener('error', e => { document.title = 'ERR: ' + e.message + '
 // ================= arena =================
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x11151c);
-scene.fog = new THREE.Fog(0x11151c, 1500, 3200);
+scene.fog = new THREE.Fog(0x11151c, 3000, 9500);
 
-const chase = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 1, 6000);
+const chase = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 1, 14000);
 chase.up.set(0,0,1);
 const renderer = new THREE.WebGLRenderer({antialias:true});
 renderer.setSize(innerWidth, innerHeight);
@@ -211,11 +211,11 @@ scene.add(sun);
 renderer.shadowMap.enabled = true;
 
 // floor 2.4m x 2.4m — 200mm checkerboard tiles (a measuring stick in every frame)
-const ARENA = 2400, TILE = 200;
+const ARENA = 4800, TILE = 200;
 const fc = document.createElement('canvas'); fc.width = fc.height = 600;
 const fx = fc.getContext('2d');
 const tp = 600/(ARENA/TILE);
-for(let i=0;i<12;i++) for(let j=0;j<12;j++){
+for(let i=0;i<24;i++) for(let j=0;j<24;j++){
   fx.fillStyle = (i+j)%2 ? '#39465a' : '#242d3a';
   fx.fillRect(i*tp, j*tp, tp, tp);
 }
@@ -252,11 +252,11 @@ addBox(0,  ARENA/2, ARENA, W, 220, 0, wallMat); addBox(0, -ARENA/2, ARENA, W, 22
 addBox( ARENA/2, 0, W, ARENA, 220, 0, wallMat); addBox(-ARENA/2, 0, W, ARENA, 220, 0, wallMat);
 // colored blocks — purer hues (previous muddy tones misread in the 320x240 POV jpeg)
 const BLOCKS = [
-  {name:'red',    c:0xe03030, s:[-600,300,220,220,200]},
-  {name:'blue',   c:0x2f6fe0, s:[500,-450,260,180,160]},
-  {name:'green',  c:0x2fb14c, s:[200,550,180,260,240]},
-  {name:'yellow', c:0xe6b422, s:[-350,-650,240,240,180]},
-  {name:'purple', c:0x9a4bdc, s:[750,500,200,200,220]},
+  {name:'red',    c:0xe03030, s:[-1200,600,220,220,200]},
+  {name:'blue',   c:0x2f6fe0, s:[1000,-900,260,180,160]},
+  {name:'green',  c:0x2fb14c, s:[400,1100,180,260,240]},
+  {name:'yellow', c:0xe6b422, s:[-700,-1300,240,240,180]},
+  {name:'purple', c:0x9a4bdc, s:[1500,1000,200,200,220]},
 ];
 let secretTruth = null;
 const blockMeshes = BLOCKS.map(b => ({...b, mesh: addBox(b.s[0],b.s[1],b.s[2],b.s[3],b.s[4], b.c)}));
@@ -320,7 +320,7 @@ scene.add(car);
 const povPan = new THREE.Group();
 povPan.position.set(85,0,150);
 car.add(povPan);
-const pov = new THREE.PerspectiveCamera(70, 320/240, 5, 5000);
+const pov = new THREE.PerspectiveCamera(70, 320/240, 5, 10000);
 pov.up.set(0,0,1);
 povPan.add(pov);
 pov.lookAt(685,0,80);          // set while car+group are at identity: forward, slight down
@@ -381,7 +381,7 @@ function occAdd(wx, wy){
   const k = gx+","+gy;
   const c = occupancy.get(k);
   if(c) c.hits++;
-  else if(occupancy.size < 4000) occupancy.set(k, {x:gx*OCC_CELL, y:gy*OCC_CELL, hits:1, label:null});
+  else if(occupancy.size < 12000) occupancy.set(k, {x:gx*OCC_CELL, y:gy*OCC_CELL, hits:1, label:null});
 }
 // semantic fusion: stamp a vision label onto the sonar geometry around a point —
 // the map stops being anonymous dots and becomes "that cluster IS the yellow block"
@@ -432,7 +432,7 @@ setInterval(()=>{
 // fed to both models: nearest remembered obstacle per 45° sector (3000 = unscanned)
 const RADAR_NAMES = ['ahead','ahead_left','left','rear_left','rear','rear_right','right','ahead_right'];
 function occRadar(){
-  const sect = Array(8).fill(3000), what = Array(8).fill(null);
+  const sect = Array(8).fill(6000), what = Array(8).fill(null);
   for(const c of occupancy.values()){
     const dx = c.x-state.x, dy = c.y-state.y;
     const dist = Math.hypot(dx,dy);
@@ -442,7 +442,7 @@ function occRadar(){
     if(dist < sect[idx]){ sect[idx] = dist; what[idx] = c.label; }
   }
   const out = {};
-  RADAR_NAMES.forEach((n,i) => out[n] = {mm: sect[i] >= 3000 ? 3000 : Math.max(0, Math.round(sect[i] - RADIUS)), what: what[i]});
+  RADAR_NAMES.forEach((n,i) => out[n] = {mm: sect[i] >= 6000 ? 6000 : Math.max(0, Math.round(sect[i] - RADIUS)), what: what[i]});
   return out;
 }
 
@@ -472,7 +472,7 @@ function readSensors(){
     // mission-sizing budgets: how far it can actually go before contact.
     // advance = live forward cone minus hull halfwidth; reverse = MEMORY only
     advance_budget_mm: Math.max(0, Math.min(uf, ul, ur) - 40),
-    reverse_budget_mm: Math.max(0, occNearest(Math.PI, Math.PI*2/3, 3000) - RADIUS - 40),
+    reverse_budget_mm: Math.max(0, occNearest(Math.PI, Math.PI*2/3, 6000) - RADIUS - 40),
     heading_deg: Math.round(((state.th*180/Math.PI)%360+360)%360),
     speed_mm_s: Math.round(lastSpeed),
     motor_left_power: +state.l.toFixed(2),
@@ -490,7 +490,7 @@ function readSensors(){
       return {label:k.label, map_x:Math.round(k.x), map_y:Math.round(k.y),
               distance_mm:Math.round(Math.hypot(dx,dy)), bearing_deg:Math.round(-b)};
     }),
-    rear_memory_mm: Math.max(0, occNearest(Math.PI, Math.PI*2/3, 3000) - RADIUS),  // remembered, NOT sensed
+    rear_memory_mm: Math.max(0, occNearest(Math.PI, Math.PI*2/3, 6000) - RADIUS),  // remembered, NOT sensed
     map_radar: occRadar(),          // remembered surroundings, per 45-deg sector
     map_cells_scanned: occupancy.size,
     known_landmarks: landmarkMap.map(k => {
@@ -908,7 +908,7 @@ function ingestWaypoints(points){
   // single clearance rule: pre-flight below (170mm vs mapped geometry).
   // (the old 450mm landmark clamp contradicted it in corridors — see LAB_NOTES)
   const clamped = (points||[]).map(w => ({
-    x: Math.max(-1100, Math.min(1100, w.x)), y: Math.max(-1100, Math.min(1100, w.y)),
+    x: Math.max(-2300, Math.min(2300, w.x)), y: Math.max(-2300, Math.min(2300, w.y)),
     face_deg: w.face_deg, faceLabel: w.face, look_s: w.look_s}));
   // densify (interpolants are plain; the original point keeps its look/face meta)
   wpList = [];
@@ -949,6 +949,8 @@ function ingestWaypoints(points){
 }
 
 function startAction(a){
+  if(wpActive && wpIdx < wpList.length - 1)
+    tevent('path_abandoned', `path abandoned at point ${wpIdx+1}/${wpList.length} — replaced by ${a.name}. If that was not deliberate, use "continue" to let paths finish.`);
   wpActive = false; activeAction = null;
   sgTurnAccum = 0; sgDistAccum = 0; sgStartT = performance.now(); sgStartHeading = state.th;
   driverStatus = 'running';
@@ -1250,7 +1252,9 @@ async function thinkOnce(){
       // FUNCTION-CALL DISPATCH: the thinker commands via action{name,args};
       // reissuing the same action continues it, a different one replaces it,
       // no action at all means "carry on"
-      if(cmd.action && cmd.action.name){
+      if(cmd.action && cmd.action.name === 'continue'){
+        // explicit carry-on: current action/path keeps running untouched
+      } else if(cmd.action && cmd.action.name){
         const desc = cmd.action.name + ' ' + JSON.stringify(cmd.action.args || {});
         const same = desc === currentSubgoal && driverStatus === 'running';
         if(!same){ startAction(cmd.action); actionCheck = String(cmd.check || ''); }
@@ -1456,7 +1460,7 @@ fetch('/api/project').then(r=>r.json()).then(p=>{
 });
 
 // ================= main loop =================
-chase.position.set(-500,-700,600);
+chase.position.set(-900,-1300,1100);
 controls.target.set(0,0,50);
 // live sensors panel (throttled)
 setInterval(()=>{
@@ -1468,10 +1472,10 @@ setInterval(()=>{
 const mapShotCanvas = document.createElement('canvas');
 mapShotCanvas.width = mapShotCanvas.height = 512;
 function buildMapGrid(){
-  const N = 24, CELL = 100;
+  const N = 24, CELL = 200;
   const rows = Array.from({length:N}, () => Array(N).fill('.'));
   const put = (x, y, ch) => {
-    const c = Math.floor((x+1200)/CELL), r = Math.floor((1200-y)/CELL);
+    const c = Math.floor((x+ARENA/2)/CELL), r = Math.floor((ARENA/2-y)/CELL);
     if(c>=0 && c<N && r>=0 && r<N) rows[r][c] = ch;
   };
   for(const cc of occupancy.values()) put(cc.x, cc.y, '#');
@@ -1495,13 +1499,13 @@ function mapShot(){
   const X = x => cx + x*sc, Y = y => cy - y*sc;
   g.fillStyle = '#ffffff'; g.fillRect(0,0,S,S);
   g.strokeStyle = '#cccccc'; g.fillStyle = '#888'; g.font = '9px monospace'; g.lineWidth = 1;
-  for(let v = -1200; v <= 1200; v += 600){
-    g.beginPath(); g.moveTo(X(v), Y(-1200)); g.lineTo(X(v), Y(1200)); g.stroke();
-    g.beginPath(); g.moveTo(X(-1200), Y(v)); g.lineTo(X(1200), Y(v)); g.stroke();
-    g.fillText(String(v), X(v)-10, Y(-1200)+10);
-    g.fillText(String(v), X(-1200)-2, Y(v)+3);
+  for(let v = -ARENA/2; v <= ARENA/2; v += ARENA/4){
+    g.beginPath(); g.moveTo(X(v), Y(-ARENA/2)); g.lineTo(X(v), Y(ARENA/2)); g.stroke();
+    g.beginPath(); g.moveTo(X(-ARENA/2), Y(v)); g.lineTo(X(ARENA/2), Y(v)); g.stroke();
+    g.fillText(String(v), X(v)-14, Y(-ARENA/2)+10);
+    g.fillText(String(v), X(-ARENA/2)-2, Y(v)+3);
   }
-  g.strokeStyle = '#333'; g.strokeRect(X(-1200), Y(1200), 2400*sc, 2400*sc);
+  g.strokeStyle = '#333'; g.strokeRect(X(-ARENA/2), Y(ARENA/2), ARENA*sc, ARENA*sc);
   g.fillStyle = '#555';
   for(const c of occupancy.values()) g.fillRect(X(c.x)-2.5, Y(c.y)-2.5, 5, 5);
   g.font = 'bold 10px monospace';
