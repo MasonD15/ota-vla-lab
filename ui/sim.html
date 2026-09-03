@@ -1207,6 +1207,18 @@ function situation(){
   if(rm.rotated_deg_15s > 360 && rm.advanced_mm_15s < 150)
     parts.push(`SPINNING IN PLACE (${rm.rotated_deg_15s} deg rotated, only ${rm.advanced_mm_15s}mm net movement)`);
   if(rejectStreak >= 3) parts.push(`${rejectStreak} CONSECUTIVE PATH REJECTIONS: per your own map, the route you keep attempting may be impassable — reconsider the approach entirely (different side, farther vantage, or observe from where a path CAN reach)`);
+  for(const k of landmarkMap){
+    const dk = Math.hypot(k.x-state.x, k.y-state.y);
+    if(dk > 700) continue;
+    let clusterNear = false;
+    for(const c of occupancy.values())
+      if(Math.hypot(c.x-k.x, c.y-k.y) < 300){ clusterNear = true; break; }
+    const seen = seenCells.has(Math.round(k.x/SEEN_CELL)+","+Math.round(k.y/SEEN_CELL));
+    if(!clusterNear && seen){
+      parts.push(`PHANTOM SUSPECT: your map places "${k.label}" only ${Math.round(dk)}mm away, but that spot is OBSERVED-EMPTY (no geometry there) — the label is misplaced; forget it or re-report it where it actually is`);
+      break;
+    }
+  }
   const lastMove = trail.length ? trail[trail.length-1][2] : null;
   if(lastMove && performance.now()-lastMove > 40000)
     parts.push(`STATIONARY ${Math.round((performance.now()-lastMove)/1000)}s: you have not relocated — from a fixed spot, nothing new will ever enter view`);
@@ -1356,6 +1368,14 @@ async function thinkOnce(){
     const rt = performance.now() - t0;
     if(cmd.error){ addLog({isErr:true, errText:cmd.error, rt}); }
     else if(autopilot){
+      if(Array.isArray(cmd.forget)) for(const fl of cmd.forget){
+        const idx = landmarkMap.findIndex(k => k.label.toLowerCase().includes(fl.toLowerCase()));
+        if(idx >= 0){
+          const dead = landmarkMap.splice(idx, 1)[0];
+          for(const c of occupancy.values()) if(c.label === dead.label) c.label = null;
+          tevent('landmark_forgotten', `"${dead.label}" removed from the map at your request`);
+        }
+      }
       if(Array.isArray(cmd.notes)) for(const n of cmd.notes){
         const ex = poiMap.find(k => k.label === n.label);
         if(ex){ ex.x = n.x; ex.y = n.y; }
