@@ -1,5 +1,15 @@
 # Robotics Lab — Feature & Performance Notebook
 
+## 2026-09-03 — 🏆 FIRST FULL WIN (session 083316; see NOTABLE_MOMENTS #2)
+Blue/4 hunt in the doubled arena: located, approached, orbited, verified, answered
+CORRECTLY in 114.6s / $0.023. Same-day fixes all pulled their weight: `continue`
+used 8x (zero path abandonments — the byte-identical-JSON bug is confirmed dead;
+seven consecutive continues rode one arc to a waypoints_done), self-written checks
+appeared in 26/26 replies and the final answer explicitly satisfied its own check.
+Notes written: 2. Remaining roughness: 8 pre-flight rejections mid-orbit (tight
+arcs) — candidate refinement: rejection messages could name the nearest passable
+gap. Baseline established: win in ~2 minutes at ~2 cents.
+
 ## 2026-09-03 — Path abandonment decoded + arena doubled (Mason)
 **Why paths died 1-2 points in (Mason's question):** "same action = continue"
 compared action JSON VERBATIM. Re-emitting a byte-identical 6-point waypoint array
