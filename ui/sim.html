@@ -37,8 +37,8 @@
   #pov canvas { border-radius:8px; display:block; }
   #pov .cap { font-size:10px; color:#5f7188; margin-top:6px; display:flex; justify-content:space-between; }
 
-  #log { position:absolute; bottom:14px; right:14px; z-index:10; width:420px;
-    max-height:320px; padding:12px; font-size:11.5px; overflow-y:auto; }
+  #log { display:none; position:absolute; bottom:14px; left:50%; transform:translateX(-50%);
+    z-index:12; width:520px; max-height:45%; padding:12px; font-size:11.5px; overflow-y:auto; }
   #logtot { font-size:10px; color:#5f7188; font-family:ui-monospace,monospace; margin-bottom:6px; }
   .lrow { padding:5px 0; border-bottom:1px solid rgba(255,255,255,.05); line-height:1.5; cursor:pointer; }
   .lrow:hover { background:rgba(255,255,255,.03); }
@@ -150,6 +150,8 @@
     <span>LLM <b id="hlat">–</b> ms</span>
     <span><b id="hhz">–</b> cmd/s</span>
     <span id="hmode">manual</span>
+    <span id="tglogs" style="cursor:pointer; color:#3b82f6; font-weight:700">📜 logs</span>
+    <span id="tgai" style="cursor:pointer; color:#3b82f6; font-weight:700">🤖 ai view</span>
   </div>
 
   <div id="pov" class="panel">
@@ -157,8 +159,8 @@
     <div class="cap"><span>rover camera (sent to LLM)</span><span id="povstat"></span></div>
   </div>
 
-  <div id="storybox" class="panel" style="position:absolute; top:300px; right:14px; width:344px; max-height:290px; overflow-y:auto; padding:12px; z-index:10">
-    <h2 style="font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:#6b7a8d; margin-bottom:6px">Thought process (thinker narration)</h2>
+  <div id="storybox" class="panel" style="position:absolute; top:300px; right:14px; width:344px; max-height:220px; overflow-y:auto; padding:12px; z-index:10">
+    <h2 style="font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:#6b7a8d; margin-bottom:6px">Current thought (full history in 📜 logs)</h2>
     <div id="story" style="font-size:11px; line-height:1.55"></div>
   </div>
 
@@ -168,11 +170,14 @@
 
   <div id="hint">WASD / arrows · drive manually<br>autopilot: camera frame → LLM → motor vectors</div>
 
-  <div id="mind" class="panel" style="position:absolute; bottom:14px; left:50%; transform:translateX(-50%); padding:10px; z-index:10">
-    <h2>mind map · only what it has learned</h2>
-    <canvas id="mindmap" width="200" height="200" style="display:block"></canvas>
-    <h2 style="margin-top:8px">what the AI receives (image + grid)</h2>
-    <img id="aimap" width="200" style="display:block; border-radius:6px">
+  <div id="mind" class="panel" style="position:absolute; bottom:14px; right:14px; padding:10px; z-index:11">
+    <h2>mind map · trail · looked-at fan · labels</h2>
+    <canvas id="mindmap" width="220" height="220" style="display:block"></canvas>
+  </div>
+
+  <div id="aiview" class="panel" style="display:none; position:absolute; bottom:14px; left:14px; padding:10px; z-index:12; max-height:70%; overflow-y:auto">
+    <h2>what the AI receives (image + grid)</h2>
+    <img id="aimap" width="230" style="display:block; border-radius:6px">
     <pre id="aigrid" style="font-size:7.5px; line-height:1.15; color:#8fa2b8; font-family:ui-monospace,monospace; margin-top:4px"></pre>
   </div>
 </div>
@@ -1148,7 +1153,7 @@ async function thinkOnce(){
          <span style="color:#4ade80">➜ ${esc(cmd.say||cmd.subgoal||'—')}</span>
          ${cmd.scene ? `<div style="color:#4d5d6e; font-size:9.5px; margin-top:2px">🎞 ${esc(cmd.scene)}</div>` : ''}`;
       st.prepend(entry);
-      while(st.children.length > 12) st.lastChild.remove();
+      while(st.children.length > 1) st.lastChild.remove();
       if(currentSubgoal){
         subgoalHistory.push({subgoal: currentSubgoal, t: sgStartT,
           outcome: driverStatus==='running' ? 'still running when replaced' : driverStatus});
@@ -1452,7 +1457,7 @@ function mapShot(){
 // Deliberately does NOT draw the real obstacles; gaps here = things it hasn't learned.
 const mmc = document.getElementById('mindmap').getContext('2d');
 function drawMind(){
-  const S=200, sc=S*0.88/ARENA, cx=S/2, cy=S/2;
+  const S=220, sc=S*0.88/ARENA, cx=S/2, cy=S/2;
   const X=x=>cx+x*sc, Y=y=>cy-y*sc;
   mmc.fillStyle='#0d1116'; mmc.fillRect(0,0,S,S);
   mmc.strokeStyle='#2a3340'; mmc.strokeRect(X(-ARENA/2), Y(ARENA/2), ARENA*sc, ARENA*sc);
@@ -1534,6 +1539,13 @@ document.getElementById('savekey').onclick = async ()=>{
   refreshKeyStat();
 };
 refreshKeyStat();
+
+// top tabs: full logs + machine-readable map, hidden unless opened
+const tg = (btn, panel) => document.getElementById(btn).onclick = () => {
+  const el = document.getElementById(panel);
+  el.style.display = el.style.display === 'block' ? 'none' : 'block';
+};
+tg('tglogs', 'log'); tg('tgai', 'aiview');
 
 // the directed hunt IS the default mission — set on load, no 🎯 click needed
 document.getElementById('goal').value = huntGoal(secretTruth.color);
