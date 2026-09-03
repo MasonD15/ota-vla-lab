@@ -94,6 +94,7 @@
       <select id="mapsel" style="flex:1; background:#0d1116; color:#dfe7f0; border:1px solid rgba(255,255,255,.12); border-radius:6px; padding:4px; font-size:11px">
         <option value="arena">test arena (open, checkerboard)</option>
         <option value="house">house floor (rooms + furniture)</option>
+        <option value="house_blue">house — AMBIGUOUS (every block is blue)</option>
       </select>
     </div>
     <div style="display:flex; gap:6px; align-items:center; margin:2px 0 8px; font-size:11px; color:#8fa2b8">
@@ -274,7 +275,7 @@ function buildArena(){
 }
 
 // ---------- map: house floor (rooms, doorways, furniture clutter) ----------
-function buildHouse(){
+function buildHouse(allBlue){
   mapSpawn = {x:-1200, y:-400};   // open floor in the SW room, clear of walls/furniture
   envDesc = 'the floor of a HOUSE interior (~4.8m span): wood plank flooring (planks ~150mm wide — count planks for distance), beige walls with dark baseboards, MULTIPLE ROOMS connected by open doorways, and household furniture as obstructions (couch, table, shelf, chair, potted plant, a rug). Sightlines are blocked by interior walls and furniture — expect to travel through doorways and look around obstacles to find things';
   addFloor(makeTex(512,512, g => {
@@ -329,13 +330,15 @@ function buildHouse(){
       }
     }), roughness:.95}));
   rug.position.set(-1200,1200,1.5); rug.receiveShadow = true; worldGroup.add(rug);
-  buildBlocks([
+  const defs = [
     {name:'red',    c:0xe03030, s:[-1500,1400,220,220,200]},  // NW room, near rug
     {name:'green',  c:0x2fb14c, s:[1400,1500,180,260,240]},   // NE, by the shelf
     {name:'blue',   c:0x2f6fe0, s:[1600,-1600,260,180,160]},  // SE, behind the couch
     {name:'yellow', c:0xe6b422, s:[-1600,-1900,240,240,180]}, // SW, behind the table
     {name:'purple', c:0x9a4bdc, s:[700,150,200,200,220]},     // NE, mid-house
-  ]);
+  ];
+  if(allBlue) defs.forEach(d => { d.name = 'blue'; d.c = 0x2f6fe0; });  // ambiguity mode
+  buildBlocks(defs);
 }
 
 function buildBlocks(defs){
@@ -348,7 +351,7 @@ function buildWorld(name){
   if(worldGroup) scene.remove(worldGroup);
   worldGroup = new THREE.Group();
   obstacles.length = 0; blockMeshes = [];
-  (name === 'house' ? buildHouse : buildArena)();
+  (name === 'arena' ? buildArena : () => buildHouse(name === 'house_blue'))();
   scene.add(worldGroup);
   assignSecret();
 }
@@ -377,7 +380,7 @@ function assignSecret(){
   secretTruth = {color: b.name, number: n};
   console.log('secret (shh):', secretTruth);
 }
-buildWorld(new URLSearchParams(location.search).get('map') === 'house' ? 'house' : 'arena');
+buildWorld(['house','house_blue'].includes(new URLSearchParams(location.search).get('map')) ? new URLSearchParams(location.search).get('map') : 'arena');
 
 // ================= the car =================
 const car = new THREE.Group();
@@ -1473,7 +1476,8 @@ async function thinkOnce(){
         const lx = cap.x + Math.cos(wb)*useDist;
         const ly = cap.y + Math.sin(wb)*useDist;
         const label = String(lm.label||'?').slice(0,24);
-        const ex = landmarkMap.find(k => k.label===label || Math.hypot(k.x-lx,k.y-ly)<250);
+        const ex = landmarkMap.find(k =>
+          (k.label===label && Math.hypot(k.x-lx,k.y-ly)<600) || Math.hypot(k.x-lx,k.y-ly)<250);
         if(ex){
           // color-conflict guard: a position-merge may only change the color word if
           // this observation was CLOSER than the one that named it (near looks win)
@@ -1488,8 +1492,13 @@ async function thinkOnce(){
             occLabel(ex.x, ex.y, ex.label);
           }
         } else if(landmarkMap.length < 24){
-          landmarkMap.push({label, x:lx, y:ly, obsDist: lm.distance_mm||9999});
-          occLabel(lx, ly, label);
+          // same name, different place = a DIFFERENT object: number it
+          let final = label;
+          const twins = landmarkMap.filter(k => k.label === label || k.label.startsWith(label+' #')).length;
+          if(twins > 0) final = `${label} #${twins+1}`;
+          landmarkMap.push({label: final, x:lx, y:ly, obsDist: lm.distance_mm||9999});
+          occLabel(lx, ly, final);
+          if(final !== label) tevent('twin_object', `another "${label}" found — stored as "${final}" (distinct object, distinct place)`);
         }
       }
       lastThinkT = performance.now();
@@ -1776,7 +1785,7 @@ function drawMind(){
 setInterval(drawMind, 250);
 // directed hunt: the goal NAMES the target block (random each round) — the rover
 // must navigate to that specific block and get behind it, not wander all of them
-const huntGoal = color => currentMap === 'house'
+const huntGoal = color => currentMap.startsWith('house')
   ? `You are in a house. You need to navigate around the house, locate the ${color.toUpperCase()} block, and determine what number it has on one of its sides. When you can actually READ the number in the camera image, reply with "answer": {"number": <n>, "color": "${color}"}. Never guess.`
   : `Find the number painted on the ${color.toUpperCase()} block. It is on the face turned AWAY from the arena center, so you must go around behind the ${color} block to see it. Navigate there directly and investigate. When you can actually READ the number in the camera image, reply with "answer": {"number": <n>, "color": "${color}"}. Never guess.`;
 const isHuntGoal = t => /^(Find the number painted on the|You are in a house)/.test(t||'');
