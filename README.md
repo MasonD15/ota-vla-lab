@@ -12,10 +12,14 @@ The answer turned out to be: surprisingly far — if you're willing to learn, fr
 
 A zero-dependency browser robotics simulator (pure Python stdlib server + Three.js) where a hierarchical LLM stack hunts for a hidden number painted on one face of one block in an arena:
 
-- **Planner** (one call per mission) — breaks the mission into steps with machine-checkable success conditions
-- **Thinker** (~0.3 Hz, vision) — perceives, labels, maintains memory, and commands the rover by **calling functions** from a fixed action library
-- **Motion layer** (hardcoded, 60 Hz) — executes primitives (`move`, `turn`, `face`, `goto`, `scan`, `follow_waypoints`, `mark`…) with measured progress, tapered precision, and a safety envelope
-- **The mind's eye** — the rover builds its own map live from simulated sonar (occupancy grid + vision-labeled landmarks + visual-coverage fan), rendered back to the LLM as an image *and* an ASCII grid it can plot waypoints on
+- **Planner** (one call per mission) — breaks the mission into steps with machine-checkable success conditions, occlusion-aware ("explore until sighted", not "scan in place")
+- **Thinker** (~0.3 Hz, vision) — perceives, labels, self-annotates the map, writes its own success checks, and commands the rover by **calling functions** from a fixed action library
+- **Motion layer** (hardcoded, 60 Hz) — executes primitives (`move`, `turn`, `face`, `goto`, `scan`, `follow_waypoints` with per-point look/dwell, `mark`, `continue`…) with measured progress, tapered precision, and pre-flight path validation against the rover's own map
+- **The mind's eye** — a live self-built map: tri-state occupancy (**never-seen / seen-free / obstacle** — walls cast real vision shadows), self-correcting landmarks (re-report, `forget`, phantom detection), POI notes, coverage fan — rendered back to the LLM as an image *and* an ASCII grid it plots waypoints on
+
+**Three worlds** (map dropdown): an open test arena; a **house floor** with rooms, doorways, and furniture obstructions; and an **ambiguity mode** where every block is blue and the rover must discover multiplicity and verify candidates itself.
+
+**Status: the arena mission has been won end-to-end** — located, approached, orbited, verified, answered correctly in 114s for $0.023 (see [`NOTABLE_MOMENTS.md`](NOTABLE_MOMENTS.md) #2). The house is the current frontier.
 
 Everything the model believes is visible live: its scene narration (👁 observe / 🤔 assess / ➜ decide), its self-written memory, its map, its plan checklist, and every token and cent spent.
 
